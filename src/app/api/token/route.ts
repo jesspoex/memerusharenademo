@@ -1,5 +1,4 @@
 // src/app/api/token/route.ts
-<<<<<<< HEAD
 import { NextRequest, NextResponse } from 'next/server'; import { 
 fetchTokenByCA } from '@/lib/dexscreener'; export async function 
 GET(req: NextRequest) {
