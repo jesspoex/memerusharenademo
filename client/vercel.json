@@ -1,8 +1,11 @@
 {
-  "crons": [
+  "rewrites": [],
+  "headers": [
     {
-      "path": "/api/token/route",
-      "schedule": "0 0 * * *"
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate" }
+      ]
     }
   ]
 }
