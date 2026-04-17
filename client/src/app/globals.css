@@ -1,0 +1,307 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ========================================
+   BASE STYLES
+   ======================================== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  overflow-x: hidden;
+}
+
+body {
+  min-height: 100vh;
+  background: linear-gradient(to bottom, transparent, rgb(3, 7, 18)) rgb(3, 7, 18);
+  color: rgb(255, 255, 255);
+}
+
+/* ========================================
+   CUSTOM ANIMATIONS
+   ======================================== */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes bounce-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes gradient {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.5s ease-out;
+}
+
+.animate-bounce-slow {
+  animation: bounce-slow 3s ease-in-out infinite;
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient 3s ease infinite;
+}
+
+/* ========================================
+   WALLET ADAPTER STYLES
+   ======================================== */
+.wallet-adapter-button {
+  pointer-events: auto !important;
+  z-index: 9999 !important;
+  position: relative !important;
+  cursor: pointer !important;
+}
+
+.wallet-adapter-dropdown {
+  z-index: 9999 !important;
+  position: relative !important;
+}
+
+.wallet-adapter-dropdown-list {
+  background: rgba(17, 24, 39, 0.95) !important;
+  border: 1px solid rgba(168, 85, 247, 0.3) !important;
+  border-radius: 12px !important;
+  backdrop-filter: blur(10px) !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5) !important;
+  z-index: 10000 !important;
+}
+
+.wallet-adapter-dropdown-list-item {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.wallet-adapter-dropdown-list-item:last-child {
+  border-bottom: none !important;
+}
+
+.wallet-adapter-dropdown-list-item:hover {
+  background: rgba(168, 85, 247, 0.2) !important;
+}
+
+.wallet-adapter-button-trigger {
+  background: linear-gradient(135deg, #a855f7 0%, #3b82f6 100%) !important;
+  border-radius: 8px !important;
+  padding: 8px 16px !important;
+  font-weight: 600 !important;
+  font-size: 14px !important;
+  box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4) !important;
+  transition: all 0.3s ease !important;
+  cursor: pointer !important;
+}
+
+.wallet-adapter-button-trigger:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 6px 20px rgba(168, 85, 247, 0.6) !important;
+}
+
+/* ========================================
+   CUSTOM SCROLLBAR
+   ======================================== */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(31, 41, 55, 0.5);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(168, 85, 247, 0.5);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(168, 85, 247, 0.7);
+}
+
+/* ========================================
+   MOBILE OPTIMIZATIONS
+   ======================================== */
+@media (max-width: 640px) {
+  .wallet-adapter-button-trigger {
+    padding: 6px 12px !important;
+    font-size: 12px !important;
+  }
+  
+  main {
+    padding: 0.75rem !important;
+  }
+  
+  /* Compact text for mobile */
+  h1 { font-size: 1.125rem !important; }
+  h2 { font-size: 1rem !important; }
+  .text-3xl { font-size: 1.5rem !important; }
+  .text-4xl { font-size: 1.75rem !important; }
+}
+
+/* ========================================
+   UTILITY CLASSES
+   ======================================== */
+.pointer-events-auto {
+  pointer-events: auto !important;
+}
+
+.z-high {
+  z-index: 9999 !important;
+}
+
+/* Glassmorphism utility */
+.glass {
+  background: rgba(17, 24, 39, 0.7);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+/* Neon glow utility */
+.neon-glow {
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.5),
+              0 0 20px rgba(168, 85, 247, 0.3),
+              0 0 30px rgba(168, 85, 247, 0.1);
+}
+
+/* Battle animation utilities */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 10px rgba(234, 179, 8, 0.5); }
+  50% { box-shadow: 0 0 30px rgba(234, 179, 8, 0.8); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes confetti-fall {
+  0% { transform: translateY(-100vh) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+}
+
+.animate-confetti {
+  animation: confetti-fall 3s ease-in-out forwards;
+}
+/* Mobile-first optimizations */
+@media (max-width: 768px) {
+  button, a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@supports (padding: max(0px)) {
+  .safe-top {
+    padding-top: max(env(safe-area-inset-top), 20px);
+  }
+  .safe-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom), 20px);
+  }
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(31, 41, 55, 0.3);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(168, 85, 247, 0.5);
+  border-radius: 4px;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* NEW: Micro UI feedback animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Button tap feedback */
+button:active {
+  transform: scale(0.98);
+  transition: transform 0.1s ease;
+}
+
+/* Smooth hover transitions */
+.hover\:scale-105:hover {
+  transition: transform 0.2s ease;
+}
+
+/* Custom scrollbar for activity feed */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(31, 41, 55, 0.3);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(168, 85, 247, 0.5);
+  border-radius: 4px;
+}
+
+/* Safe area for notched devices */
+@supports (padding: max(0px)) {
+  .safe-top {
+    padding-top: max(env(safe-area-inset-top), 20px);
+  }
+  .safe-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom), 20px);
+  }
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Custom scrollbar untuk activity feed */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(31, 41, 55, 0.3);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(168, 85, 247, 0.5);
+  border-radius: 4px;
+}
