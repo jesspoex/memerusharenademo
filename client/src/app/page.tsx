@@ -322,7 +322,7 @@ export default function HomePage() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 pt-8 pb-28 space-y-8">
+      <main className="max-w-5xl mx-auto px-4 pt-6 pb-28 space-y-7">
 
         {/* ── HERO ───────────────────────────────────────────────────────────── */}
         <section className="relative py-14 px-6 text-center overflow-hidden">
@@ -338,21 +338,21 @@ export default function HomePage() {
               </span>
               {battles.length>0?`${battles.length} LIVE BATTLES NOW`:'LIVE ON SOLANA MAINNET'}
             </div>
-            <h1 className="text-[clamp(28px,7vw,52px)] font-black leading-[1.04] tracking-tight mb-4">
+            <h1 className="text-[clamp(26px,6.5vw,50px)] font-black leading-[1.06] tracking-tight mb-4">
               <span className="bg-clip-text text-transparent" style={{backgroundImage:G.brand}}>Battle Memecoins.</span>
               <br/>
-              <span className="text-white">Win the Pool.</span>
+              <span className="text-white">Trade Live. Win the Pool.</span>
             </h1>
-            <p className="text-[13px] mb-8 leading-relaxed" style={{color:'rgba(100,116,139,1)'}}>
-              Pick a token, join a battle from{' '}
-              <span className="text-white font-semibold">{C.MIN_SOL} SOL ({C.MIN_USD})</span>
-              {' '}— winner takes pool, paid instantly on-chain.
+            <p className="text-[14px] mb-3 leading-relaxed max-w-md mx-auto" style={{color:'rgba(148,163,184,1)'}}>
+              Join a live battle, pick a side, trade during the match, and win if your token performs better.
             </p>
-            <button onClick={go} className="inline-flex items-center gap-3 px-12 py-4 rounded-2xl text-lg font-black text-white transition-all hover:scale-[1.04] active:scale-95 mr-glow-btn"
+            <p className="text-[12px] mb-7" style={{color:'rgba(71,85,105,1)'}}>
+              Start from just <span className="font-semibold" style={{color:'rgba(251,146,60,.8)'}}>{C.MIN_SOL} SOL ({C.MIN_USD})</span> · No signup · No KYC
+            </p>
+            <button onClick={go} className="inline-flex items-center gap-2.5 px-11 py-4 rounded-2xl text-lg font-black text-white transition-all hover:scale-[1.03] active:scale-95 mr-glow-btn"
               style={{background:G.primary,boxShadow:S.primaryBtn}}>
-              ⚔️ ENTER ARENA
+              ⚔️ Enter Arena
             </button>
-            <p className="text-[11px] mt-4" style={{color:'rgba(71,85,105,1)'}}>No signup · No KYC · Wallet = identity</p>
             {/* Social icons under CTA */}
             <div className="flex items-center justify-center gap-3 mt-5">
               {[
@@ -426,7 +426,17 @@ export default function HomePage() {
             </div>
           ) : battles.length>0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {battles.slice(0,6).map(b=><BattleCard key={b.id} b={b} go={go}/>)}
+              {battles.slice(0,6).map((b,idx)=>{
+                const isTop = idx===0; // most joined — API returns sorted by players desc
+                return (
+                  <div key={b.id} className={isTop?'relative':''}>
+                    {isTop&&<div className="absolute -inset-[1px] rounded-[17px] pointer-events-none z-10" style={{background:'linear-gradient(135deg,rgba(249,115,22,.35),rgba(251,191,36,.2),rgba(249,115,22,.1))'}}/>}
+                    <div className="relative z-20">
+                      <BattleCard b={b} go={go}/>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="rounded-2xl border py-12 text-center" style={{background:'rgba(10,10,22,.98)',borderColor:'rgba(249,115,22,.08)'}}>
@@ -442,24 +452,25 @@ export default function HomePage() {
         </section>
 
         {/* ── CTA BLOCK ────────────────────────────────────────────────────── */}
-        <section className="relative rounded-2xl border overflow-hidden" style={{background:'linear-gradient(135deg,rgba(120,53,15,.2),rgba(9,9,24,.98))',borderColor:'rgba(249,115,22,.15)'}}>
-          <div className="absolute top-0 inset-x-0 h-px" style={{background:'linear-gradient(90deg,transparent,rgba(249,115,22,.5),transparent)'}}/>
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-5 px-7 py-6">
+        <section className="relative rounded-2xl border overflow-hidden" style={{background:'linear-gradient(135deg,rgba(120,53,15,.14),rgba(9,9,24,.98))',borderColor:'rgba(249,115,22,.12)'}}>
+          <div className="absolute top-0 inset-x-0 h-px" style={{background:'linear-gradient(90deg,transparent,rgba(249,115,22,.4),transparent)'}}/>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 px-6 py-5">
             <div>
-              <p className="text-[9px] font-black tracking-[.16em] uppercase mb-2" style={{color:'#f97316'}}>Minimum Entry</p>
-              <div className="text-[34px] font-black text-white leading-none tracking-tight mb-2">
-                {C.MIN_SOL} <span className="text-xl font-bold" style={{color:'rgba(148,163,184,1)'}}>SOL</span>
-                <span className="text-sm font-semibold ml-2" style={{color:'rgba(71,85,105,1)'}}>{C.MIN_USD}</span>
+              <p className="text-[9px] font-black tracking-[.16em] uppercase mb-1.5" style={{color:'rgba(249,115,22,.6)'}}>Minimum Entry</p>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-black text-white tabular-nums">{C.MIN_SOL}</span>
+                <span className="text-base font-bold" style={{color:'rgba(148,163,184,1)'}}>SOL</span>
+                <span className="text-sm font-medium" style={{color:'rgba(71,85,105,1)'}}>{C.MIN_USD}</span>
               </div>
-              <p className="text-[11px]" style={{color:'rgba(71,85,105,1)'}}>No registration · No verification · Winner takes pool minus 2%</p>
+              <p className="text-[11px] mt-1.5" style={{color:'rgba(71,85,105,1)'}}>No registration · No verification · 2% platform fee</p>
             </div>
-            {/* Badge instead of duplicate button */}
-            <div className="flex flex-col items-center gap-2 shrink-0">
-              <div className="px-4 py-2.5 rounded-full border text-[11px] font-black text-center" style={{background:'rgba(249,115,22,.08)',borderColor:'rgba(249,115,22,.25)',color:'#fb923c'}}>
-                Built on Solana • Live Mainnet
-              </div>
+            <div className="flex flex-col items-start sm:items-end gap-2 shrink-0">
+              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[9px] font-black" style={{background:'rgba(249,115,22,.06)',borderColor:'rgba(249,115,22,.18)',color:'#fb923c'}}>
+                <span className="w-1.5 h-1.5 rounded-full" style={{background:'#f97316'}}/>
+                Built on Solana · Live Mainnet
+              </span>
               <a href={`https://solscan.io/account/${C.TREASURY}`} target="_blank" rel="noopener noreferrer" className="text-[10px] font-mono hover:text-orange-400 transition-colors" style={{color:'rgba(71,85,105,1)'}}>
-                {C.TREASURY.slice(0,6)}…{C.TREASURY.slice(-4)} ↗
+                View public treasury →
               </a>
             </div>
           </div>
@@ -521,8 +532,12 @@ export default function HomePage() {
 
         {/* ── WHY MEMEРUSH IS FAIR ─────────────────────────────────────────── */}
         <section className="rounded-2xl border p-6" style={{background:'rgba(8,4,2,.97)',borderColor:'rgba(249,115,22,.1)'}}>
-          <div className="flex items-center gap-2 mb-5">
+          <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
             <span className="text-[9px] font-black tracking-[.16em] uppercase" style={{color:'rgba(71,85,105,1)'}}>Why MemeRush is Fair</span>
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[9px] font-black" style={{background:'rgba(249,115,22,.06)',borderColor:'rgba(249,115,22,.18)',color:'#fb923c'}}>
+              <span className="w-1.5 h-1.5 rounded-full" style={{background:'#f97316'}}/>
+              Built on Solana · Live Mainnet
+            </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[
@@ -541,15 +556,9 @@ export default function HomePage() {
             ))}
           </div>
           <a href={`https://solscan.io/account/${C.TREASURY}`} target="_blank" rel="noopener noreferrer"
-            className="flex items-center justify-between mt-4 px-4 py-3 rounded-xl border hover:border-orange-500/30 transition-colors group"
-            style={{background:'rgba(249,115,22,.04)',borderColor:'rgba(249,115,22,.1)'}}>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black" style={{color:'#f97316'}}>💸 Public Treasury Wallet</span>
-              <span className="text-[9px]" style={{color:'rgba(71,85,105,1)'}}>· All fees visible on Solscan</span>
-            </div>
-            <span className="font-mono text-[10px] group-hover:text-orange-400 transition-colors" style={{color:'rgba(71,85,105,1)'}}>
-              {C.TREASURY.slice(0,8)}…{C.TREASURY.slice(-6)} →
-            </span>
+            className="inline-flex items-center gap-1.5 mt-4 text-[11px] font-medium transition-colors hover:text-orange-400"
+            style={{color:'rgba(100,116,139,1)'}}>
+            View public treasury →
           </a>
         </section>
 
@@ -560,14 +569,17 @@ export default function HomePage() {
             <span className="text-[9px] font-black tracking-[.16em] uppercase" style={{color:'rgba(71,85,105,1)'}}>RushTrade</span>
             <span className="px-1.5 py-0.5 rounded-full text-[8px] font-black" style={{background:'rgba(249,115,22,.15)',color:'#f97316',border:'1px solid rgba(249,115,22,.25)'}}>POINTS SYSTEM</span>
           </div>
-          <h3 className="text-base font-black text-white mb-1">Trade During Live Battles. Earn Points.</h3>
-          <p className="text-[12px] mb-4" style={{color:'rgba(100,116,139,1)'}}>RushTrade is only available to active battle participants — no farming without skin in the game.</p>
+          <h3 className="text-base font-black text-white mb-1">Only players in battle can trade & earn points.</h3>
+          <p className="text-[12px] mb-4 leading-relaxed" style={{color:'rgba(100,116,139,1)'}}>
+            RushTrade access is tied to your active battle position. No battle = no trade access.
+            Points cannot be farmed — only earned by genuine participants.
+          </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[
-              {icon:'⚔️', title:'Battle First',         desc:'Join any live battle with SOL to unlock RushTrade access for that round.'},
-              {icon:'📈', title:'Trade & Earn Points',   desc:'Buy/sell during the live battle window. Active traders accumulate points.'},
-              {icon:'🪙', title:'Points → $MRUSH',       desc:'Accumulated points convert to $MRUSH token rewards after each season.'},
-              {icon:'🛡️', title:'Anti-Farm Protection',  desc:'Points are only granted to wallets actively joined in a battle. No free rides.'},
+              {icon:'⚔️', title:'Join a Battle First',   desc:'Deposit SOL into a live battle to unlock RushTrade for that round.'},
+              {icon:'📈', title:'Trade During the Match', desc:'Buy or sell during the live battle window to accumulate points.'},
+              {icon:'🪙', title:'Points Convert to $MRUSH',desc:'Seasonal point totals convert to $MRUSH token rewards.'},
+              {icon:'🛡️', title:'Anti-Farming Enforced',  desc:'Only wallets with an active bet earn points. No free access.'},
             ].map(f=>(
               <div key={f.title} className="flex gap-3 p-3 rounded-xl border" style={{background:'rgba(255,255,255,.02)',borderColor:'rgba(249,115,22,.07)'}}>
                 <span className="text-lg shrink-0 mt-0.5">{f.icon}</span>
@@ -682,10 +694,10 @@ export default function HomePage() {
       {/* ── MOBILE BOTTOM BAR ─────────────────────────────────────────────── */}
       <div className="fixed bottom-0 inset-x-0 z-40 sm:hidden border-t backdrop-blur-xl" style={{background:'rgba(5,3,1,.97)',borderColor:'rgba(249,115,22,.08)',paddingBottom:'env(safe-area-inset-bottom)'}}>
         <div className="px-4 py-3">
-          <button onClick={go} className="w-full py-4 rounded-2xl text-base font-black text-white transition-all active:scale-95 flex items-center justify-center gap-2"
-            style={{background:G.primary,boxShadow:'0 0 32px rgba(249,115,22,.45),0 4px 16px rgba(0,0,0,.4)'}}>
-            ⚔️ ENTER ARENA
-            <span className="text-[11px] font-bold opacity-70">· from {C.MIN_SOL} SOL</span>
+          <button onClick={go} className="w-full py-[15px] rounded-2xl text-[15px] font-black text-white transition-all active:scale-95 flex items-center justify-center gap-2"
+            style={{background:G.primary,boxShadow:'0 0 28px rgba(249,115,22,.4),0 4px 16px rgba(0,0,0,.4)'}}>
+            ⚔️ Enter Arena
+            <span className="text-[11px] font-semibold opacity-60">· from {C.MIN_SOL} SOL</span>
           </button>
         </div>
       </div>
