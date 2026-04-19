@@ -69,4 +69,4 @@ export async function POST(req: NextRequest) {
     note:      'Manual trigger — normally handled by Supabase pg_cron',
     ts:        new Date().toISOString(),
   });
-                               }
+}
