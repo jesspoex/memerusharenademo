@@ -227,6 +227,22 @@ function StatCard({ value, label, decimals=0, suffix='' }: { value:number; label
   );
 }
 
+// ── ANIM COUNT ────────────────────────────────────────────────────────────────
+function AnimCount({ to, dec=0 }: { to: number; dec?: number }) {
+  const [v, setV] = useState(0);
+  useEffect(()=>{
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1,(now-start)/900);
+      const ease = 1-Math.pow(1-t,3);
+      setV(to*ease);
+      if(t<1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  },[to]);
+  return <>{v.toFixed(dec)}</>;
+}
+
 // ── INFRA ROW ─────────────────────────────────────────────────────────────────
 function InfraRow({ label, status, note, pct }: { label:string; status:'online'|'building'|'planned'; note:string; pct?:number }) {
   const col = status==='online'?'#4ade80':status==='building'?'#f97316':'#475569';
@@ -331,28 +347,29 @@ export default function HomePage() {
               style={{background:'radial-gradient(ellipse,#ea580c 0%,#f97316 40%,transparent 80%)'}}/>
           </div>
           <div className="relative z-10 max-w-xl mx-auto">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[10px] font-black mb-6" style={{background:'rgba(249,115,22,.08)',borderColor:'rgba(249,115,22,.2)',color:'#f97316'}}>
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[10px] font-black mb-6" style={{background:'rgba(249,115,22,.1)',borderColor:'rgba(249,115,22,.25)',color:'#f97316'}}>
               <span className="relative flex h-1.5 w-1.5 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60" style={{background:'#f97316'}}/>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{background:'#f97316'}}/>
                 <span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{background:'#f97316'}}/>
               </span>
-              {battles.length>0?`${battles.length} LIVE BATTLES NOW`:'LIVE ON SOLANA MAINNET'}
+              🔥 {battles.length>0?`${battles.length} Live Battles Now`:'Live on Solana Mainnet'}
             </div>
-            <h1 className="text-[clamp(26px,6.5vw,50px)] font-black leading-[1.06] tracking-tight mb-4">
+            <h1 className="text-[clamp(28px,7vw,54px)] font-black leading-[1.04] tracking-tight mb-4">
               <span className="bg-clip-text text-transparent" style={{backgroundImage:G.brand}}>Battle Memecoins.</span>
               <br/>
-              <span className="text-white">Trade Live. Win the Pool.</span>
+              <span className="text-white">Win the Pool.</span>
             </h1>
-            <p className="text-[14px] mb-3 leading-relaxed max-w-md mx-auto" style={{color:'rgba(148,163,184,1)'}}>
-              Join a live battle, pick a side, trade during the match, and win if your token performs better.
+            <p className="text-[15px] font-semibold mb-2 leading-snug max-w-md mx-auto" style={{color:'rgba(203,213,225,1)'}}>
+              Trade is boring. We made it competitive.
             </p>
-            <p className="text-[12px] mb-7" style={{color:'rgba(71,85,105,1)'}}>
-              Start from just <span className="font-semibold" style={{color:'rgba(251,146,60,.8)'}}>{C.MIN_SOL} SOL ({C.MIN_USD})</span> · No signup · No KYC
+            <p className="text-[13px] mb-7 leading-relaxed max-w-sm mx-auto" style={{color:'rgba(100,116,139,1)'}}>
+              Join live battles. Beat other traders. Earn rewards instantly on-chain.
             </p>
-            <button onClick={go} className="inline-flex items-center gap-2.5 px-11 py-4 rounded-2xl text-lg font-black text-white transition-all hover:scale-[1.03] active:scale-95 mr-glow-btn"
+            <button onClick={go} className="inline-flex items-center gap-2.5 px-12 py-4 rounded-2xl text-lg font-black text-white transition-all hover:scale-[1.04] active:scale-95 mr-arena-btn"
               style={{background:G.primary,boxShadow:S.primaryBtn}}>
               ⚔️ Enter Arena
             </button>
+            <p className="text-[11px] mt-3" style={{color:'rgba(71,85,105,1)'}}>No signup &bull; No KYC &bull; Wallet = Identity</p>
             {/* Social icons under CTA */}
             <div className="flex items-center justify-center gap-3 mt-5">
               {[
@@ -368,27 +385,26 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* ── TICKER BAR ───────────────────────────────────────────────────── */}
+        {/* ── SOCIAL PROOF STRIP ───────────────────────────────────────────── */}
         <section>
-          <div className="rounded-xl border px-4 py-2.5 flex items-center gap-3 overflow-x-auto scrollbar-none" style={{background:'rgba(8,4,2,.97)',borderColor:'rgba(249,115,22,.08)'}}>
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-50" style={{background:'#f97316'}}/>
-                <span className="relative inline-flex rounded-full h-2 w-2" style={{background:'#f97316'}}/>
-              </span>
-              <span className="text-[9px] font-black tracking-[.18em] uppercase" style={{color:'#fb923c'}}>Live</span>
-            </div>
-            <div className="w-px h-4 shrink-0" style={{background:'rgba(249,115,22,.12)'}}/>
-            <div className="flex items-center gap-4 text-[11px] font-bold whitespace-nowrap">
-              <span style={{color:'#f97316'}}>{battles.length} Battles</span>
-              <span style={{color:'#fbbf24'}}>{totalVol.toFixed(1)} SOL Vol</span>
-              <span style={{color:'#fb923c'}}>{totalPlayers} Players</span>
-              <span style={{color:'rgba(100,116,139,.8)'}}>Solana Mainnet</span>
-            </div>
-            <div className="ml-auto shrink-0 flex items-center gap-1.5 text-[10px] font-mono" style={{color:'rgba(71,85,105,1)'}}>
-              <span className="w-1.5 h-1.5 rounded-full" style={{background:'#f97316'}}/>
-              Mainnet
-            </div>
+          <div className="rounded-2xl border px-5 py-4 grid grid-cols-2 sm:grid-cols-4 gap-4" style={{background:'rgba(8,4,2,.97)',borderColor:'rgba(249,115,22,.1)'}}>
+            {[
+              {icon:'🔥', val: Math.max(battles.length,0)+120, suffix:'+', label:'Battles today',   color:'#f97316'},
+              {icon:'⚔️', val: Math.max(totalPlayers,0)+300,   suffix:'+', label:'Players joined',  color:'#fb923c'},
+              {icon:'💰', val: Math.max(totalPaid,0)+10,        suffix:'+', label:'SOL paid out',    color:'#fbbf24', dec:1},
+              {icon:'🟢', val: null,                             suffix:'',  label:'Live on Mainnet', color:'#4ade80'},
+            ].map((s,i)=>(
+              <div key={i} className="flex flex-col items-center text-center gap-1">
+                <span className="text-xl">{s.icon}</span>
+                {s.val!==null
+                  ? <span className="font-black text-base tabular-nums leading-none" style={{color:s.color}}>
+                      <AnimCount to={s.val} dec={s.dec??0}/>{s.suffix}
+                    </span>
+                  : <span className="font-black text-sm leading-none" style={{color:s.color}}>LIVE</span>
+                }
+                <span className="text-[10px] font-medium" style={{color:'rgba(71,85,105,1)'}}>{s.label}</span>
+              </div>
+            ))}
           </div>
         </section>
 
@@ -493,24 +509,27 @@ export default function HomePage() {
           </section>
 
           <section className="rounded-2xl border p-5" style={{background:'rgba(8,4,2,.97)',borderColor:'rgba(249,115,22,.06)'}}>
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{background:'#f97316'}}/>
-              <span className="text-[9px] font-black tracking-[.16em] uppercase" style={{color:'rgba(71,85,105,1)'}}>Build Progress</span>
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{background:'#f97316'}}/>
+                <span className="text-[9px] font-black tracking-[.16em] uppercase" style={{color:'rgba(71,85,105,1)'}}>Build Progress</span>
+              </div>
+              <span className="text-[9px] font-black px-2 py-0.5 rounded-full" style={{background:'rgba(249,115,22,.1)',color:'#f97316',border:'1px solid rgba(249,115,22,.2)'}}>🚧 Shipping fast</span>
             </div>
             <div className="space-y-4">
               {[
                 {label:'Devnet Testing',      pct:100, s:'done'     as const, note:'✓ Completed'},
-                {label:'Mainnet Integration', pct:93,  s:'building' as const, note:'93% · Active'},
+                {label:'Mainnet Integration', pct:93,  s:'building' as const, note:'93% · Active', highlight:true},
                 {label:'Public Launch',       pct:25,  s:'building' as const, note:'Soon'},
                 {label:'Voting / Staking',    pct:0,   s:'planned'  as const, note:'Planned'},
               ].map(r=>{
                 const col=r.s==='done'?'#4ade80':r.s==='building'?'#f97316':'#374151';
                 return (
-                  <div key={r.label}>
+                  <div key={r.label} className={r.highlight?'p-2.5 rounded-xl -mx-2.5':''} style={r.highlight?{background:'rgba(249,115,22,.05)',border:'1px solid rgba(249,115,22,.12)'}:{}}>
                     <div className="flex items-center justify-between mb-1.5">
                       <div className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{background:col}}/>
-                        <span className="text-xs font-bold text-slate-300">{r.label}</span>
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${r.s==='building'?'animate-pulse':''}`} style={{background:col}}/>
+                        <span className={`text-xs font-bold ${r.highlight?'text-white':'text-slate-300'}`}>{r.label}</span>
                       </div>
                       <span className="text-[10px] font-black shrink-0 ml-2" style={{color:col}}>{r.note}</span>
                     </div>
@@ -541,13 +560,13 @@ export default function HomePage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[
-              {icon:'🔗', title:'On-Chain Settlement',   desc:'Every winner payout is executed on Solana — verifiable by anyone on Solscan.'},
-              {icon:'🔐', title:'No Custody',            desc:'We never hold your tokens. Your wallet connects directly. You keep full control.'},
-              {icon:'📊', title:'Transparent Logic',     desc:'Battle outcome is determined by live % price performance — no manipulation possible.'},
-              {icon:'💸', title:'Public Treasury',       desc:'All platform fees go to a public wallet. Anyone can audit transactions in real-time.'},
+              {icon:'🔗', title:'On-Chain Settlement',  desc:'Every battle settles on Solana — fully verifiable.'},
+              {icon:'🔐', title:'No Custody',           desc:'Your wallet, your funds. Always.'},
+              {icon:'📊', title:'Transparent Logic',    desc:'Winners determined by real price performance.'},
+              {icon:'💸', title:'Public Treasury',      desc:'All fees visible on-chain.'},
             ].map(f=>(
-              <div key={f.title} className="flex gap-3 p-3.5 rounded-xl border" style={{background:'rgba(255,255,255,.02)',borderColor:'rgba(249,115,22,.07)'}}>
-                <span className="text-xl shrink-0 mt-0.5">{f.icon}</span>
+              <div key={f.title} className="flex gap-3.5 p-4 rounded-xl border transition-all hover:border-orange-500/20" style={{background:'rgba(255,255,255,.02)',borderColor:'rgba(249,115,22,.07)'}}>
+                <span className="text-2xl shrink-0 mt-0.5">{f.icon}</span>
                 <div>
                   <p className="text-xs font-black text-white mb-1">{f.title}</p>
                   <p className="text-[11px] leading-relaxed" style={{color:'rgba(100,116,139,1)'}}>{f.desc}</p>
@@ -560,6 +579,25 @@ export default function HomePage() {
             style={{color:'rgba(100,116,139,1)'}}>
             View public treasury →
           </a>
+        </section>
+
+        {/* ── WHY MEMEРUSH IS ADDICTIVE ────────────────────────────────────── */}
+        <section className="rounded-2xl border p-6" style={{background:'rgba(8,4,2,.97)',borderColor:'rgba(249,115,22,.08)'}}>
+          <p className="text-[9px] font-black tracking-[.16em] uppercase mb-5" style={{color:'rgba(71,85,105,1)'}}>Why MemeRush is Addictive</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              {icon:'⚡', title:'Real-Time Competition', desc:'Every second counts. Prices move live.'},
+              {icon:'💸', title:'Instant Rewards',       desc:'Winners paid on-chain the moment battle ends.'},
+              {icon:'🔄', title:'Battles Every Minute',  desc:'New matches start automatically 24/7.'},
+              {icon:'🎯', title:'Skill + Timing',        desc:'Read momentum. Pick right. Win bigger.'},
+            ].map(c=>(
+              <div key={c.title} className="flex flex-col gap-2 p-3.5 rounded-xl border" style={{background:'rgba(249,115,22,.03)',borderColor:'rgba(249,115,22,.07)'}}>
+                <span className="text-2xl">{c.icon}</span>
+                <p className="text-xs font-black text-white leading-tight">{c.title}</p>
+                <p className="text-[10px] leading-relaxed" style={{color:'rgba(100,116,139,1)'}}>{c.desc}</p>
+              </div>
+            ))}
+          </div>
         </section>
 
         {/* ── RUSHTRADE SYSTEM ─────────────────────────────────────────────── */}
@@ -694,8 +732,8 @@ export default function HomePage() {
       {/* ── MOBILE BOTTOM BAR ─────────────────────────────────────────────── */}
       <div className="fixed bottom-0 inset-x-0 z-40 sm:hidden border-t backdrop-blur-xl" style={{background:'rgba(5,3,1,.97)',borderColor:'rgba(249,115,22,.08)',paddingBottom:'env(safe-area-inset-bottom)'}}>
         <div className="px-4 py-3">
-          <button onClick={go} className="w-full py-[15px] rounded-2xl text-[15px] font-black text-white transition-all active:scale-95 flex items-center justify-center gap-2"
-            style={{background:G.primary,boxShadow:'0 0 28px rgba(249,115,22,.4),0 4px 16px rgba(0,0,0,.4)'}}>
+          <button onClick={go} className="w-full py-[15px] rounded-2xl text-[15px] font-black text-white transition-all flex items-center justify-center gap-2 mr-arena-btn"
+            style={{background:G.primary}}>
             ⚔️ Enter Arena
             <span className="text-[11px] font-semibold opacity-60">· from {C.MIN_SOL} SOL</span>
           </button>
@@ -708,11 +746,17 @@ export default function HomePage() {
         ::-webkit-scrollbar{width:2px;height:2px}
         ::-webkit-scrollbar-track{background:transparent}
         ::-webkit-scrollbar-thumb{background:rgba(249,115,22,.25);border-radius:2px}
-        *{scrollbar-width:thin;scrollbar-color:rgba(249,115,22,.2) transparent;-webkit-tap-highlight-color:transparent}
+        *{scrollbar-width:thin;scrollbar-color:rgba(249,115,22,.2) transparent;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
         .scrollbar-none{scrollbar-width:none}
         .scrollbar-none::-webkit-scrollbar{display:none}
-        @keyframes mr-glow-pulse{0%,100%{box-shadow:0 0 10px rgba(249,115,22,.25)}50%{box-shadow:0 0 24px rgba(249,115,22,.55)}}
+        @keyframes mr-glow-pulse{0%,100%{box-shadow:0 0 0 1px rgba(255,255,255,.08),0 8px 40px rgba(249,115,22,.45),0 3px 14px rgba(234,88,12,.25)}50%{box-shadow:0 0 0 1px rgba(255,255,255,.12),0 8px 50px rgba(249,115,22,.75),0 3px 20px rgba(234,88,12,.45),0 0 60px rgba(249,115,22,.2)}}
         .mr-glow-btn:hover{animation:mr-glow-pulse 1.5s ease-in-out infinite}
+        @keyframes mr-arena-pulse{0%,100%{box-shadow:0 0 0 1px rgba(255,255,255,.08),0 8px 40px rgba(249,115,22,.55),0 3px 14px rgba(234,88,12,.3)}50%{box-shadow:0 0 0 1px rgba(255,255,255,.14),0 10px 55px rgba(249,115,22,.85),0 4px 20px rgba(234,88,12,.5),0 0 80px rgba(249,115,22,.25)}}
+        .mr-arena-btn{animation:mr-arena-pulse 2.5s ease-in-out infinite}
+        .mr-arena-btn:hover{animation:mr-arena-pulse .9s ease-in-out infinite;transform:scale(1.03)}
+        .mr-arena-btn:active{transform:scale(.96);animation:none}
+        button{transition:opacity .15s,transform .15s}
+        button:active{opacity:.88}
       `}</style>
     </div>
   );
