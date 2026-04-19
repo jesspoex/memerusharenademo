@@ -7,8 +7,8 @@ Users can compete in real-time trading battles, climb leaderboards, and turn tra
 🌐 Live: https://memerush.xyz
 
 watch video
-https://www.loom.com/share/fdd1c346443b4a3cb7d6e680133fba98
-https://www.loom.com/share/3e3abfb977294ecab0ca88383c2464b7
+week 1: https://www.loom.com/share/fdd1c346443b4a3cb7d6e680133fba98
+week 2: https://www.loom.com/share/3e3abfb977294ecab0ca88383c2464b7
 
 ---
 
