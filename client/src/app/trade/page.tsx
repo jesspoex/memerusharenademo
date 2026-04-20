@@ -6,6 +6,7 @@
 // Data hooks → trade/hooks/useBattleData.ts, useWalletData.ts
 // UI components → trade/components/*
 // =============================================================================
+
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
@@ -24,14 +25,14 @@ import {
 import { sbGet, sbInsert, sbUpsert, createRealtimeChannel } from './supabase-client';
 
 // ── Data hooks ────────────────────────────────────────────────────────────────
-import { useBattleData } from './useBattleData';
-import { useWalletData } from './useWalletData';
+import { useBattleData } from './hooks/useBattleData';
+import { useWalletData } from './hooks/useWalletData';
 
 // ── UI Components ─────────────────────────────────────────────────────────────
-import { MiniChart }     from './MiniChart';
-import { BattleCard }    from './BattleCard';
-import { TradeStats }    from './TradeStats';
-import { LiveActivity }  from './LiveActivity';
+import { MiniChart } from './components/MiniChart';
+import { BattleCard } from './components/BattleCard';
+import { TradeStats } from './components/TradeStats';
+import { LiveActivity } from './components/LiveActivity';
 
 // ── Small inline components (kept here — too small to split) ──────────────────
 function LoadingState() {
