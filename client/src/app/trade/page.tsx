@@ -1224,7 +1224,6 @@ function TradeContent() {
       {/* Main content */}
       <main className="max-w-lg mx-auto px-3 py-3 space-y-3">
         {activeTab==='arena'&&renderArena()}
-        {activeTab==='chat'&&renderChat()}
         {activeTab==='stats'&&renderStats()}
         {activeTab==='profile'&&renderProfile()}
       </main>
