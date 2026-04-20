@@ -18,20 +18,20 @@ import {
   Battle, DbBattle, DbBet, DbActivity, DbWinner, DbStats,
   Token, Activity, ChatMessage, UserProfile, LeaderboardEntry,
   RecentWinner, RushPosition, ModalTab, PaymentToken, BattleMode,
-} from './trade/constants';
+} from './constants';
 
 // ── Supabase client helpers ───────────────────────────────────────────────────
-import { sbGet, sbInsert, sbUpsert, createRealtimeChannel } from './trade/supabase-client';
+import { sbGet, sbInsert, sbUpsert, createRealtimeChannel } from './supabase-client';
 
 // ── Data hooks ────────────────────────────────────────────────────────────────
-import { useBattleData } from './trade/hooks/useBattleData';
-import { useWalletData } from './trade/hooks/useWalletData';
+import { useBattleData } from './hooks/useBattleData';
+import { useWalletData } from './hooks/useWalletData';
 
 // ── UI Components ─────────────────────────────────────────────────────────────
-import { MiniChart }     from './trade/components/MiniChart';
-import { BattleCard }    from './trade/components/BattleCard';
-import { TradeStats }    from './trade/components/TradeStats';
-import { LiveActivity }  from './trade/components/LiveActivity';
+import { MiniChart }     from './components/MiniChart';
+import { BattleCard }    from './components/BattleCard';
+import { TradeStats }    from './components/TradeStats';
+import { LiveActivity }  from './components/LiveActivity';
 
 // ── Small inline components (kept here — too small to split) ──────────────────
 function LoadingState() {
