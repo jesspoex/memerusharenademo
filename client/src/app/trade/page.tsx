@@ -1264,9 +1264,7 @@ function TradeContent() {
 export default function TradePage(){
   return(
     <ErrorBoundary>
-      <GameProvider>
         <TradeContent/>
-      </GameProvider>
     </ErrorBoundary>
   );
     }
