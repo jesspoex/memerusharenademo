@@ -15,7 +15,7 @@ import { Connection, LAMPORTS_PER_SOL, PublicKey, Transaction, SystemProgram } f
 // ── Shared constants & types ──────────────────────────────────────────────────
 import {
   CFG, TOKENS, TIERS, DURS, getTier, calcFee, toLocalBattle,
-  sf, fmtT, fmtN, sw, ph, fmtTs, tAgo, lsSave, lsLoad,
+  sf, fmtT, fmtN, fmtP, sw, ph, fmtTs, tAgo, lsSave, lsLoad,
   Battle, DbBattle, DbBet, DbActivity, DbWinner, DbStats,
   Token, Activity, ChatMessage, UserProfile, LeaderboardEntry,
   RecentWinner, RushPosition, ModalTab, PaymentToken, BattleMode,
