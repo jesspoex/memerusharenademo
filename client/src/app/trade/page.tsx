@@ -21,7 +21,7 @@ import {
 } from './trade/constants';
 
 // ── Supabase client helpers ───────────────────────────────────────────────────
-import { sbGet, sbInsert, sbUpsert, createRealtimeChannel } from './trade/supabase-client';
+import { sbGet, sbInsert, sbUpsert, createRealtimeChannel } from './supabase-client';
 
 // ── Data hooks ────────────────────────────────────────────────────────────────
 import { useBattleData } from './hooks/useBattleData';
