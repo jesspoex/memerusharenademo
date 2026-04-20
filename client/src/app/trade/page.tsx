@@ -24,14 +24,14 @@ import {
 import { sbGet, sbInsert, sbUpsert, createRealtimeChannel } from './supabase-client';
 
 // ── Data hooks ────────────────────────────────────────────────────────────────
-import { useBattleData } from './hooks/useBattleData';
-import { useWalletData } from './hooks/useWalletData';
+import { useBattleData } from './useBattleData';
+import { useWalletData } from './useWalletData';
 
 // ── UI Components ─────────────────────────────────────────────────────────────
-import { MiniChart }     from './components/MiniChart';
-import { BattleCard }    from './components/BattleCard';
-import { TradeStats }    from './components/TradeStats';
-import { LiveActivity }  from './components/LiveActivity';
+import { MiniChart }     from './MiniChart';
+import { BattleCard }    from './BattleCard';
+import { TradeStats }    from './TradeStats';
+import { LiveActivity }  from './LiveActivity';
 
 // ── Small inline components (kept here — too small to split) ──────────────────
 function LoadingState() {
