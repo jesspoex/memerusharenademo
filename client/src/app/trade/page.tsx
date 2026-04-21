@@ -38,10 +38,10 @@ import { TokenLogo }        from '../../hooks/useTokenMeta';
 import { resolveTokenMeta } from '../../lib/tokenResolver';
 
 // ── Chart (Step 3) ─────────────────────────────────────────────────────────
-import { useBattleChart }   from '../../hooks/useBattleChart';
-import { TradeChart }       from '../../components/trade/chart/TradeChart';
-import { ChartHeader }      from '../../components/trade/chart/ChartHeader';
-import { ChartControls }    from '../../components/trade/chart/ChartControls';
+import { useBattleChart }   from './hooks/useBattleChart';
+import { TradeChart }       from './components/trade/chart/TradeChart';
+import { ChartHeader }      from './components/trade/chart/ChartHeader';
+import { ChartControls }    from './components/trade/chart/ChartControls';
 
 // ── Small inline components (kept here — too small to split) ──────────────────
 function LoadingState() {
