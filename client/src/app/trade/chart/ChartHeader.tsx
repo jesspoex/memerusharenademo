@@ -6,7 +6,7 @@
 'use client';
 
 import React, { memo } from 'react';
-import { TokenLogo } from '../../../../hooks/useTokenMeta';
+import { TokenLogo } from '@/hooks/useTokenMeta';
 
 function fmtPrice(p: number): string {
   if (!p) return '$-';
