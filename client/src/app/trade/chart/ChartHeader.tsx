@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo } from 'react';
-import { TokenLogo } from '../../../../hooks/useTokenMeta';
+import { TokenLogo } from '../../../hooks/useTokenMeta';
 
 function fmtPrice(p: number): string {
   if (!p) return '$-';
@@ -19,7 +19,6 @@ function fmtK(n: number): string {
   return `$${n.toFixed(0)}`;
 }
 
-// —— Loading skeleton ——————————————————————————————
 function Skeleton() {
   return (
     <div
@@ -100,7 +99,7 @@ export const ChartHeader = memo(function ChartHeader({
             {fmtPrice(priceUsd)}
           </p>
 
-          {(vol > 0 || liq > 0) ? (
+          {vol > 0 || liq > 0 ? (
             <div className="flex items-center gap-2.5 mt-0.5">
               {vol > 0 && (
                 <span className="text-[9px] text-slate-600 tabular-nums">
