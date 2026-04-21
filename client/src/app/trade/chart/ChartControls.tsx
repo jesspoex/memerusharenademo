@@ -1,6 +1,6 @@
 /**
  * components/trade/chart/ChartControls.tsx
- * Token toggle (A/B) + interval selector row. MemeRush orange theme.
+ * Token A/B toggle + interval selector. Step 4: sharper tap targets.
  */
 'use client';
 import React, { memo } from 'react';
@@ -23,18 +23,23 @@ export const ChartControls = memo(function ChartControls({
   tokenASymbol, tokenBSymbol, disabled,
 }: Props) {
   return (
-    <div className="flex items-center justify-between mt-2 mb-1">
+    <div className="flex items-center justify-between py-1">
 
-      {/* Token A / B toggle */}
-      <div className="flex rounded-lg overflow-hidden border border-white/[.07]" style={{ background: 'rgba(18,12,4,.9)' }}>
+      {/* Token A / B toggle — min 44px tap height for mobile */}
+      <div className="flex rounded-xl overflow-hidden border border-white/[.06]"
+        style={{ background: 'rgba(12,8,2,.9)' }}>
         {(['A', 'B'] as const).map(t => (
           <button
             key={t}
             onClick={() => !disabled && onToken(t)}
-            className="px-3 py-1.5 text-[11px] font-black transition-all"
+            className="px-4 text-[11px] font-black transition-all"
             style={{
-              background: activeToken === t ? 'linear-gradient(135deg,#ea580c,#f97316)' : 'transparent',
-              color:      activeToken === t ? '#fff' : 'rgba(100,116,139,1)',
+              minHeight: 36,
+              background: activeToken === t
+                ? 'linear-gradient(135deg,#ea580c,#f97316)'
+                : 'transparent',
+              color: activeToken === t ? '#fff' : 'rgba(100,116,139,1)',
+              opacity: disabled ? 0.5 : 1,
             }}
           >
             {t === 'A' ? tokenASymbol : tokenBSymbol}
@@ -44,19 +49,25 @@ export const ChartControls = memo(function ChartControls({
 
       {/* Interval pills */}
       <div className="flex items-center gap-0.5">
-        {INTERVALS.map(iv => (
-          <button
-            key={iv}
-            onClick={() => !disabled && onInterval(iv)}
-            className="px-2 py-1 text-[10px] font-black rounded-lg transition-all"
-            style={{
-              background: interval === iv ? 'rgba(249,115,22,.18)' : 'transparent',
-              color:      interval === iv ? '#f97316'              : 'rgba(71,85,105,1)',
-            }}
-          >
-            {iv.toUpperCase()}
-          </button>
-        ))}
+        {INTERVALS.map(iv => {
+          const active = interval === iv;
+          return (
+            <button
+              key={iv}
+              onClick={() => !disabled && onInterval(iv)}
+              className="rounded-lg text-[10px] font-black transition-all"
+              style={{
+                minHeight: 32,
+                padding: '0 8px',
+                background: active ? 'rgba(249,115,22,.16)' : 'transparent',
+                color:      active ? '#f97316'              : 'rgba(71,85,105,1)',
+                opacity:    disabled ? 0.5 : 1,
+              }}
+            >
+              {iv.toUpperCase()}
+            </button>
+          );
+        })}
       </div>
 
     </div>
