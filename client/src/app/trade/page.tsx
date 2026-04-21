@@ -28,21 +28,17 @@ import { sbGet, sbInsert, sbUpsert, createRealtimeChannel } from './supabase-cli
 import { useBattleData } from './hooks/useBattleData';
 import { useWalletData } from './hooks/useWalletData';
 
-// ── UI Components ─────────────────────────────────────────────────────────────
-import { BattleCard }      from './components/BattleCard';
-import { TradeStats }      from './components/TradeStats';
-import { LiveActivity }    from './components/LiveActivity';
+import { BattleCard } from './components/BattleCard';
+import { TradeStats } from './components/TradeStats';
+import { LiveActivity } from './components/LiveActivity';
 
-// ── Token resolution (Step 1) ──────────────────────────────────────────────
-import { TokenLogo }        from '../../hooks/useTokenMeta';
+import { TokenLogo } from '../../hooks/useTokenMeta';
 import { resolveTokenMeta } from '../../lib/tokenResolver';
 
-// ── Chart (Step 3) ─────────────────────────────────────────────────────────
-import { useBattleChart }   from './hooks/useBattleChart';
-import { TradeChart }       from './components/trade/chart/TradeChart';
-import { ChartHeader }      from './components/trade/chart/ChartHeader';
-import { ChartControls }    from './components/trade/chart/ChartControls';
-
+import { useBattleChart } from '../../hooks/useBattleChart';
+import { TradeChart } from './chart/TradeChart';
+import { ChartHeader } from './chart/ChartHeader';
+import { ChartControls } from './chart/ChartControls';
 // ── Small inline components (kept here — too small to split) ──────────────────
 function LoadingState() {
   return (
