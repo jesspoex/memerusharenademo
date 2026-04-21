@@ -5,9 +5,8 @@
  */
 
 // ── ENV ───────────────────────────────────────────────────────────────────────
-export const SB_URL  = process.env.NEXT_PUBLIC_SUPABASE_URL  || 'https://wlpgpjebwwublxfcpjos.supabase.co';
-export const SB_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndscGdwamVid3d1Ymx4ZmNwam9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3NzI4MjYsImV4cCI6MjA5MDM0ODgyNn0.nAiMQ59OSo8fB_OlzTNWDYW4G5qNIAlGEQVTODArypM';
-
+export const SB_URL  = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+export const SB_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 // ── Config ────────────────────────────────────────────────────────────────────
 export const CFG = {
   rpcUrl:          process.env.NEXT_PUBLIC_RPC_URL          || 'https://api.mainnet-beta.solana.com',
