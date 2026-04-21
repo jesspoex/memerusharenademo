@@ -17,8 +17,7 @@ export const CFG = {
   feeBase:         2,
   solscan:         'https://solscan.io',
   site:            process.env.NEXT_PUBLIC_SITE_URL         || 'https://www.meemerush.xyz',
-  pumpfun:         'https://pump.fun/coin/E5U8dLjntnAJtM9gvFRSZTYvx8BJhvWSXQwKaWcrpump',
-  dexscreener:     'https://dexscreener.com/solana/E5U8dLjntnAJtM9gvFRSZTYvx8BJhvWSXQwKaWcrpump',
+
   twitter:         'https://x.com/memerusharena',
   telegram:        'https://t.me/memerusharena',
   shareRewardPct:  0.001,
