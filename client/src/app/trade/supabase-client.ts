@@ -4,8 +4,8 @@
  * Separate from lib/supabase.ts which uses SERVICE_ROLE (server only).
  */
 
-const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const SB_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://wlpgpjebwwublxfcpjos.supabase.co';
+const SB_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndscGdwamVid3d1Ymx4ZmNwam9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3NzI4MjYsImV4cCI6MjA5MDM0ODgyNn0.nAiMQ59OSo8fB_OlzTNWDYW4G5qNIAlGEQVTODArypM';
 
 function sbH(extra: Record<string, string> = {}): Record<string, string> {
   return {
