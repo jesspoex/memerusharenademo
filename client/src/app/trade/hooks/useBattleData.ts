@@ -184,12 +184,8 @@ export function useBattleData(
     Promise.all([loadBattles(), loadStats(), loadActivity(), loadWinners(), loadHistory()])
       .then(([battleCount]) => {
         setDbLoaded(true);
-        setBattles(prev => {
-          if (prev.filter(b => b.status === 'live').length < CFG.KEEP_LIVE_MIN) {
-            setTimeout(() => checkAndRespawn(), 300);
-          }
-          return prev;
-        });
+        // Trigger respawn after a short delay so state is fully settled
+        setTimeout(() => checkAndRespawn(), 800);
         const openBattleId = sessionStorage.getItem('mr_open_battle');
         if (openBattleId) {
           sessionStorage.removeItem('mr_open_battle');
@@ -234,20 +230,32 @@ export function useBattleData(
     if (respawnLock.current) return;
     respawnLock.current = true;
     try {
-      const res = await fetch('/api/battles?status=live', { signal: AbortSignal.timeout(8_000) });
-      if (res.ok) { await loadBattles(); return; }
-    } catch {}
-    try {
+      // Always check actual live count — do not short-circuit on API success
       const now  = new Date();
-      const live = await sbGet<DbBattle>('mr_battles', `status=eq.live&end_time=gt.${now.toISOString()}&select=id,token_a,token_b`);
-      const needed   = CFG.KEEP_LIVE_MIN - live.length;
-      if (needed <= 0) return;
-      const existing = new Set(live.map(b => `${b.token_a}_${b.token_b}`));
+      const live = await sbGet<DbBattle>(
+        'mr_battles',
+        `status=eq.live&end_time=gt.${now.toISOString()}&select=id,token_a,token_b`,
+      );
+      const needed = CFG.KEEP_LIVE_MIN - (live?.length ?? 0);
+
+      if (needed <= 0) {
+        // Enough battles — just refresh display
+        await loadBattles();
+        return;
+      }
+
+      // Not enough — create missing battles directly via Supabase
+      const existing = new Set((live ?? []).map(b => `${b.token_a}_${b.token_b}`));
       const shuffled = [...ARENA_PAIRS]
         .filter(p => !existing.has(`${p[0]}_${p[1]}`) && !existing.has(`${p[1]}_${p[0]}`))
         .sort(() => Math.random() - 0.5)
         .slice(0, needed);
-      await Promise.all(shuffled.map((pair, i) => {
+
+      // Fallback if all pairs used: pick from full list
+      const pairs = shuffled.length > 0 ? shuffled
+        : [...ARENA_PAIRS].sort(() => Math.random() - 0.5).slice(0, needed);
+
+      await Promise.all(pairs.map((pair, i) => {
         const dur = [180, 300, 420, 600][i % 4];
         const end = new Date(now.getTime() + dur * 1000);
         const amt = parseFloat((CFG.MIN_BET_SOL + Math.random() * 0.007).toFixed(4));
@@ -262,7 +270,13 @@ export function useBattleData(
         });
       }));
       await loadBattles();
-    } finally { respawnLock.current = false; }
+    } catch (err) {
+      // Non-fatal: log and continue
+      console.warn('[checkAndRespawn] error:', err);
+      try { await loadBattles(); } catch {}
+    } finally {
+      respawnLock.current = false;
+    }
   }, [loadBattles]);
 
   useEffect(() => {
@@ -331,4 +345,4 @@ export function useBattleData(
     dbStats, dbLoaded, realtimeOk, newBattleToast,
     loadBattles, checkAndRespawn, soundedRef,
   };
-}
+  }
