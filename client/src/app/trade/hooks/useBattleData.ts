@@ -27,21 +27,26 @@ export interface BattleDataState {
 }
 
 export interface BattleDataActions {
-  setBattles:       React.Dispatch<React.SetStateAction<Battle[]>>;
-  setActiveBattle:  React.Dispatch<React.SetStateAction<Battle | null>>;
-  setBattleTimeLeft:React.Dispatch<React.SetStateAction<number>>;
-  setPickedSide:    React.Dispatch<React.SetStateAction<'A'|'B'|null>>;
-  loadBattles:      () => Promise<number>;
-  checkAndRespawn:  () => Promise<void>;
-  soundedRef:       React.MutableRefObject<Record<string,boolean>>;
+  setBattles:        React.Dispatch<React.SetStateAction<Battle[]>>;
+  setActiveBattle:   React.Dispatch<React.SetStateAction<Battle | null>>;
+  setBattleTimeLeft: React.Dispatch<React.SetStateAction<number>>;
+  setPickedSide:     React.Dispatch<React.SetStateAction<'A'|'B'|null>>;
+  loadBattles:       () => Promise<number>;
+  checkAndRespawn:   () => Promise<void>;
+  soundedRef:        React.MutableRefObject<Record<string, boolean>>;
 }
 
 export function useBattleData(
-  activeBattleRef: React.MutableRefObject<Battle | null>,
-  setActiveBattle: React.Dispatch<React.SetStateAction<Battle | null>>,
+  activeBattleRef:   React.MutableRefObject<Battle | null>,
+  setActiveBattle:   React.Dispatch<React.SetStateAction<Battle | null>>,
   setBattleTimeLeft: React.Dispatch<React.SetStateAction<number>>,
-  setPickedSide: React.Dispatch<React.SetStateAction<'A'|'B'|null>>,
-): BattleDataState & { loadBattles: () => Promise<number>; checkAndRespawn: () => Promise<void>; soundedRef: React.MutableRefObject<Record<string,boolean>>; setBattles: React.Dispatch<React.SetStateAction<Battle[]>> } {
+  setPickedSide:     React.Dispatch<React.SetStateAction<'A'|'B'|null>>,
+): BattleDataState & {
+  loadBattles:     () => Promise<number>;
+  checkAndRespawn: () => Promise<void>;
+  soundedRef:      React.MutableRefObject<Record<string, boolean>>;
+  setBattles:      React.Dispatch<React.SetStateAction<Battle[]>>;
+} {
   const [battles,        setBattles]        = useState<Battle[]>([]);
   const [battleHistory,  setBattleHistory]  = useState<DbBattle[]>([]);
   const [activities,     setActivities]     = useState<Activity[]>([]);
@@ -52,11 +57,11 @@ export function useBattleData(
   const [realtimeOk,     setRealtimeOk]     = useState(false);
   const [newBattleToast, setNewBattleToast] = useState<string | null>(null);
 
-  const respawnLock   = useRef(false);
+  const respawnLock    = useRef(false);
   const battleEndedRef = useRef<Set<string>>(new Set());
-  const soundedRef    = useRef<Record<string, boolean>>({});
+  const soundedRef     = useRef<Record<string, boolean>>({});
 
-  // ── Fetch functions ─────────────────────────────────────────────────────────
+  // ── Fetch functions ──────────────────────────────────────────────────────────
   const loadBattles = useCallback(async () => {
     try {
       const res  = await fetch('/api/battles?status=live,ended&limit=30', { cache: 'no-store' });
@@ -71,7 +76,14 @@ export function useBattleData(
     try {
       const res  = await fetch('/api/stats', { cache: 'no-store' });
       const data = await res.json() as { players?:number; battles?:number; volSol?:number; paidSol?:number };
-      setDbStats({ id:1, players:data.players??0, battles:data.battles??0, vol_sol:data.volSol??0, paid_sol:data.paidSol??0, updated_at:new Date().toISOString() });
+      setDbStats({
+        id: 1,
+        players:  data.players  ?? 0,
+        battles:  data.battles  ?? 0,
+        vol_sol:  data.volSol   ?? 0,
+        paid_sol: data.paidSol  ?? 0,
+        updated_at: new Date().toISOString(),
+      });
     } catch {}
   }, []);
 
@@ -79,9 +91,14 @@ export function useBattleData(
     const rows = await sbGet<DbActivity>('mr_activities', 'select=*&order=created_at.desc&limit=20');
     if (rows?.length) {
       setActivities(rows.map(a => ({
-        id: String(a.id ?? Date.now()), user: a.wallet,
-        action: a.action as Activity['action'], amount: a.amount,
-        battle: a.battle, time: tAgo(a.created_at), isReal: true, txHash: a.tx_hash,
+        id:     String(a.id ?? Date.now()),
+        user:   a.wallet,
+        action: a.action as Activity['action'],
+        amount: a.amount,
+        battle: a.battle,
+        time:   tAgo(a.created_at),
+        isReal: true,
+        txHash: a.tx_hash,
       })));
     }
   }, []);
@@ -89,7 +106,9 @@ export function useBattleData(
   const loadWinners = useCallback(async () => {
     try {
       const res  = await fetch('/api/recent-winners', { cache: 'no-store' });
-      const data = await res.json() as { winners?: Array<{wallet:string;fullWallet:string;amountSol:number;battle:string;txHash?:string;time:string}> };
+      const data = await res.json() as {
+        winners?: Array<{wallet:string;fullWallet:string;amountSol:number;battle:string;txHash?:string;time:string}>;
+      };
       const rows = data.winners ?? [];
       if (rows.length) {
         setRecentWinners(rows.slice(0, 10).map(w => ({
@@ -98,7 +117,10 @@ export function useBattleData(
         })));
         const grouped: Record<string, { total: number; wins: number }> = {};
         rows.forEach(w => {
-          grouped[w.wallet] = { total: (grouped[w.wallet]?.total ?? 0) + w.amountSol, wins: (grouped[w.wallet]?.wins ?? 0) + 1 };
+          grouped[w.wallet] = {
+            total: (grouped[w.wallet]?.total ?? 0) + w.amountSol,
+            wins:  (grouped[w.wallet]?.wins  ?? 0) + 1,
+          };
         });
         setLeaderboard(
           Object.entries(grouped)
@@ -127,11 +149,104 @@ export function useBattleData(
         setLeaderboard(
           rows
             .filter(r => (r.total_pnl ?? 0) > 0)
-            .map((r, i) => ({ rank: i + 1, wallet: sw(r.wallet), earnings: parseFloat((r.total_pnl ?? 0).toFixed(4)), wins: r.wins ?? 0 })),
+            .map((r, i) => ({
+              rank:     i + 1,
+              wallet:   sw(r.wallet),
+              earnings: parseFloat((r.total_pnl ?? 0).toFixed(4)),
+              wins:     r.wins ?? 0,
+            })),
         );
       }
     } catch {}
   }, []);
+
+  // ── Auto-respawn ─────────────────────────────────────────────────────────────
+  //
+  // ROOT CAUSE OF EMPTY ARENA (fixed here):
+  //   The previous version called sbInsert('mr_battles', ...) using the
+  //   browser-side anon Supabase key. The mr_battles RLS policy only allows
+  //   INSERT for service_role — so every insert was silently blocked, no
+  //   battles were ever created, and the arena stayed empty.
+  //
+  // FIX: Call /api/ensure-battles first. That route runs server-side with the
+  //   service_role key and bypasses RLS. Only fall back to direct sbInsert
+  //   if the API endpoint is unreachable (network error, cold-start timeout).
+  //
+  const checkAndRespawn = useCallback(async () => {
+    if (respawnLock.current) return;
+    respawnLock.current = true;
+
+    try {
+      // ── Step 1: ask server to ensure minimum battles (uses service_role) ───
+      // This is the correct path — server has RLS bypass via service_role key.
+      let serverHandled = false;
+      try {
+        const res = await fetch('/api/ensure-battles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (res.ok) {
+          serverHandled = true;
+        }
+      } catch {
+        // API unreachable — fall through to client fallback
+      }
+
+      // Reload display regardless of how battles were created
+      await loadBattles();
+      if (serverHandled) return;
+
+      // ── Step 2: client-side fallback (only if server unreachable) ──────────
+      // Note: this will fail silently if RLS blocks anon inserts.
+      // It is kept only as a best-effort path during cold starts or deploy gaps.
+      const now  = new Date();
+      const live = await sbGet<DbBattle>(
+        'mr_battles',
+        `status=eq.live&end_time=gt.${now.toISOString()}&select=id,token_a,token_b`,
+      );
+      const needed = CFG.KEEP_LIVE_MIN - (live?.length ?? 0);
+      if (needed <= 0) return;
+
+      const existing = new Set((live ?? []).map(b => `${b.token_a}_${b.token_b}`));
+      const candidates = [...ARENA_PAIRS]
+        .filter(p => !existing.has(`${p[0]}_${p[1]}`) && !existing.has(`${p[1]}_${p[0]}`))
+        .sort(() => Math.random() - 0.5);
+
+      // Fallback: if all pairs already active, allow reuse
+      const pairs = (candidates.length >= needed ? candidates : [...ARENA_PAIRS].sort(() => Math.random() - 0.5))
+        .slice(0, needed);
+
+      await Promise.all(pairs.map((pair, i) => {
+        const dur = [180, 300, 420, 600][i % 4];
+        const end = new Date(now.getTime() + dur * 1000);
+        const amt = parseFloat((CFG.MIN_BET_SOL + Math.random() * 0.007).toFixed(4));
+        return sbInsert('mr_battles', {
+          id:          `sys_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`,
+          creator:     'system',
+          mode:        'arena',
+          type:        'system',
+          token_a:     pair[0],
+          token_b:     pair[1],
+          amount:      amt,
+          prize_pool:  parseFloat((amt * 0.98).toFixed(4)),
+          status:      'live',
+          payment:     'SOL',
+          players:     Math.floor(Math.random() * 3) + 1,
+          start_time:  now.toISOString(),
+          end_time:    end.toISOString(),
+          created_at:  now.toISOString(),
+        });
+      }));
+
+      await loadBattles();
+    } catch (err) {
+      console.warn('[checkAndRespawn] error:', err);
+      try { await loadBattles(); } catch {}
+    } finally {
+      respawnLock.current = false;
+    }
+  }, [loadBattles]);
 
   // ── Realtime subscriptions ───────────────────────────────────────────────────
   useEffect(() => {
@@ -141,7 +256,7 @@ export function useBattleData(
       if (payload.eventType === 'INSERT') {
         setBattles(prev => {
           if (prev.find(b => b.id === db.id)) return prev;
-          if (db.creator !== 'arena') {
+          if (db.creator !== 'arena' && db.creator !== 'system') {
             setNewBattleToast(`⚔️ New battle: ${db.token_a} vs ${db.token_b}!`);
             setTimeout(() => setNewBattleToast(null), 4000);
           }
@@ -157,9 +272,14 @@ export function useBattleData(
       if (payload.eventType !== 'INSERT') return;
       const a = payload.new as DbActivity;
       setActivities(prev => [{
-        id: String(a.id ?? Date.now()), user: a.wallet,
-        action: a.action as Activity['action'], amount: a.amount,
-        battle: a.battle, time: 'Just now', isReal: true, txHash: a.tx_hash,
+        id:     String(a.id ?? Date.now()),
+        user:   a.wallet,
+        action: a.action as Activity['action'],
+        amount: a.amount,
+        battle: a.battle,
+        time:   'Just now',
+        isReal: true,
+        txHash: a.tx_hash,
       }, ...prev].slice(0, 20));
     });
 
@@ -167,8 +287,11 @@ export function useBattleData(
       if (payload.eventType !== 'INSERT') return;
       const w = payload.new as DbWinner;
       setRecentWinners(prev => [{
-        wallet: w.wallet, amount: w.amount_sol,
-        battle: w.battle, txHash: w.tx_hash, time: 'Just now',
+        wallet: w.wallet,
+        amount: w.amount_sol,
+        battle: w.battle,
+        txHash: w.tx_hash,
+        time:   'Just now',
       }, ...prev].slice(0, 10));
     });
 
@@ -176,16 +299,22 @@ export function useBattleData(
       if (payload.eventType === 'UPDATE') setDbStats(payload.new as DbStats);
     });
 
-    return () => { unsubBattles(); unsubActivity(); unsubWinners(); unsubStats(); };
+    return () => {
+      unsubBattles();
+      unsubActivity();
+      unsubWinners();
+      unsubStats();
+    };
   }, [setActiveBattle]);
 
   // ── Initial load + fallback polling ─────────────────────────────────────────
   useEffect(() => {
     Promise.all([loadBattles(), loadStats(), loadActivity(), loadWinners(), loadHistory()])
-      .then(([battleCount]) => {
+      .then(() => {
         setDbLoaded(true);
-        // Trigger respawn after a short delay so state is fully settled
+        // Trigger respawn after state settles — this is the primary creation path
         setTimeout(() => checkAndRespawn(), 800);
+
         const openBattleId = sessionStorage.getItem('mr_open_battle');
         if (openBattleId) {
           sessionStorage.removeItem('mr_open_battle');
@@ -202,7 +331,6 @@ export function useBattleData(
             });
           }, 500);
         }
-        return battleCount;
       })
       .catch(() => setDbLoaded(true));
 
@@ -225,60 +353,7 @@ export function useBattleData(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Auto-respawn ─────────────────────────────────────────────────────────────
-  const checkAndRespawn = useCallback(async () => {
-    if (respawnLock.current) return;
-    respawnLock.current = true;
-    try {
-      // Always check actual live count — do not short-circuit on API success
-      const now  = new Date();
-      const live = await sbGet<DbBattle>(
-        'mr_battles',
-        `status=eq.live&end_time=gt.${now.toISOString()}&select=id,token_a,token_b`,
-      );
-      const needed = CFG.KEEP_LIVE_MIN - (live?.length ?? 0);
-
-      if (needed <= 0) {
-        // Enough battles — just refresh display
-        await loadBattles();
-        return;
-      }
-
-      // Not enough — create missing battles directly via Supabase
-      const existing = new Set((live ?? []).map(b => `${b.token_a}_${b.token_b}`));
-      const shuffled = [...ARENA_PAIRS]
-        .filter(p => !existing.has(`${p[0]}_${p[1]}`) && !existing.has(`${p[1]}_${p[0]}`))
-        .sort(() => Math.random() - 0.5)
-        .slice(0, needed);
-
-      // Fallback if all pairs used: pick from full list
-      const pairs = shuffled.length > 0 ? shuffled
-        : [...ARENA_PAIRS].sort(() => Math.random() - 0.5).slice(0, needed);
-
-      await Promise.all(pairs.map((pair, i) => {
-        const dur = [180, 300, 420, 600][i % 4];
-        const end = new Date(now.getTime() + dur * 1000);
-        const amt = parseFloat((CFG.MIN_BET_SOL + Math.random() * 0.007).toFixed(4));
-        return sbInsert('mr_battles', {
-          id: `sys_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`,
-          creator: 'system', mode: 'arena', type: 'system',
-          token_a: pair[0], token_b: pair[1],
-          amount: amt, prize_pool: parseFloat((amt * 0.98).toFixed(4)),
-          status: 'live', payment: 'SOL',
-          players: Math.floor(Math.random() * 3) + 1,
-          start_time: now.toISOString(), end_time: end.toISOString(), created_at: now.toISOString(),
-        });
-      }));
-      await loadBattles();
-    } catch (err) {
-      // Non-fatal: log and continue
-      console.warn('[checkAndRespawn] error:', err);
-      try { await loadBattles(); } catch {}
-    } finally {
-      respawnLock.current = false;
-    }
-  }, [loadBattles]);
-
+  // ── Periodic respawn — separate effect so it always uses latest checkAndRespawn
   useEffect(() => {
     const t0 = setTimeout(() => checkAndRespawn(), 1_500);
     const id  = setInterval(() => checkAndRespawn(), CFG.RESPAWN_INTERVAL);
@@ -313,21 +388,31 @@ export function useBattleData(
           return { ...b, tokenAChange: na, tokenBChange: nb, chartA: cA, chartB: cB };
         });
 
-        // Sync active battle chart
+        // Sync active battle chart from the latest battles snapshot
         setBattles(cur => {
           setActiveBattle(prevActive => {
             if (!prevActive || prevActive.status !== 'live') return prevActive;
             const tl = Math.max(0, Math.floor((prevActive.endTime - now) / 1000));
             setBattleTimeLeft(tl);
             if (tl <= 10 && tl > 0 && !soundedRef.current[`${prevActive.id}_${tl}`]) {
-              soundedRef.current[`${prevActive.id}_${tl}`] = true; playTick();
+              soundedRef.current[`${prevActive.id}_${tl}`] = true;
+              playTick();
             }
             if (tl === 0 && !soundedRef.current[`${prevActive.id}_win`]) {
-              soundedRef.current[`${prevActive.id}_win`] = true; setTimeout(playWinner, 300);
+              soundedRef.current[`${prevActive.id}_win`] = true;
+              setTimeout(playWinner, 300);
             }
             const up = cur.find(b => b.id === prevActive.id);
             if (!up) return prevActive;
-            return { ...prevActive, chartA: up.chartA, chartB: up.chartB, tokenAChange: up.tokenAChange, tokenBChange: up.tokenBChange, status: up.status, winner: up.winner };
+            return {
+              ...prevActive,
+              chartA:       up.chartA,
+              chartB:       up.chartB,
+              tokenAChange: up.tokenAChange,
+              tokenBChange: up.tokenBChange,
+              status:       up.status,
+              winner:       up.winner,
+            };
           });
           return cur;
         });
@@ -340,9 +425,18 @@ export function useBattleData(
   }, []);
 
   return {
-    battles, setBattles,
-    battleHistory, activities, recentWinners, leaderboard,
-    dbStats, dbLoaded, realtimeOk, newBattleToast,
-    loadBattles, checkAndRespawn, soundedRef,
+    battles,
+    setBattles,
+    battleHistory,
+    activities,
+    recentWinners,
+    leaderboard,
+    dbStats,
+    dbLoaded,
+    realtimeOk,
+    newBattleToast,
+    loadBattles,
+    checkAndRespawn,
+    soundedRef,
   };
   }
