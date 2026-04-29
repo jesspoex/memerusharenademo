@@ -1,120 +1,147 @@
-/**
- * app/api/resolve-battle/route.ts
- *
- * ARSITEKTUR BARU:
- *   - Battle system/arena: ditutup otomatis oleh Supabase pg_cron
- *   - Battle real (mode='real'): tetap diselesaikan oleh endpoint ini
- *     karena butuh on-chain payout yang harus dieksekusi dari server Node.js
- *
- * GET  — admin trigger: resolve semua expired real battles + refill
- * POST — admin trigger: resolve 1 battle spesifik
- *
- * Tidak lagi tergantung Vercel Cron. Panggil manual atau dari dashboard admin.
- */
-
 import { NextRequest, NextResponse } from 'next/server';
-import { getBattleById, dbPatch, dbInsert, dbSelect, DbBattle } from '@/lib/supabase';
-import { executePayout } from '@/lib/payout';
-import { compareTokens } from '@/lib/price';
-import { verifyAdminSecret } from '@/lib/security';
-import { ensureMinimumBattles } from '@/lib/ensure-battles';
+import { createClient } from '@supabase/supabase-js';
 
-function isAuthorized(req: NextRequest): boolean {
-  return verifyAdminSecret(req);
+export const dynamic    = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+
+interface DbBattle {
+  id:            string;
+  status:        string;
+  payment:       string | null;
+  token_a:       string;
+  token_b:       string;
+  winner?:       string | null;
+  winner_wallet?: string | null;
+  audd_pool?:    number | null;
+  prize_pool?:   number | null;
 }
 
-// POST — resolve satu battle spesifik
+interface DbBet {
+  side:       string;
+  net_amount: number;
+  wallet:     string;
+}
+
+function getAdmin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
+}
+
 export async function POST(req: NextRequest) {
-  if (!isAuthorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  try {
-    const { battleId, winner: manualWinner } = await req.json() as { battleId?: string; winner?: string };
-    if (!battleId) return NextResponse.json({ error: 'battleId required' }, { status: 400 });
-
-    const battle = await getBattleById(battleId);
-    if (!battle) return NextResponse.json({ error: 'Battle not found' }, { status: 404 });
-    if (battle.status === 'paid') return NextResponse.json({ success: true, alreadyPaid: true, battleId });
-
-    const now = new Date().toISOString();
-
-    // Battle system/arena: tutup saja, tanpa payout on-chain
-    if (battle.mode !== 'real') {
-      await dbPatch('mr_battles', `id=eq.${battleId}`, { status: 'paid', ended_at: now });
-      ensureMinimumBattles().catch(() => {});
-      return NextResponse.json({ success: true, battleId, arena: true });
-    }
-
-    // Battle real: butuh pemenang + payout on-chain
-    let winner = manualWinner;
-    let priceMethod = 'manual';
-    if (!winner) {
-      const cmp = await compareTokens(battle.token_a, battle.token_b);
-      winner      = cmp.winner;
-      priceMethod = cmp.method;
-    }
-
-    if (winner !== battle.token_a && winner !== battle.token_b) {
-      return NextResponse.json({ error: 'Invalid winner' }, { status: 400 });
-    }
-
-    await dbPatch('mr_battles', `id=eq.${battleId}`, { status: 'ended', winner, ended_at: now });
-    await dbInsert('mr_activities', {
-      wallet:     'System',
-      action:     'ended',
-      battle:     `${battle.token_a} vs ${battle.token_b}`,
-      created_at: now,
-    }).catch(() => {});
-
-    const payout = await executePayout(battleId);
-    ensureMinimumBattles().catch(() => {});
-
-    return NextResponse.json({ success: payout.success, battleId, winner, priceMethod, payout });
-  } catch (e) {
-    console.error('[ResolveBattle] Error:', e);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
-
-// GET — resolve semua real battles yang expired (admin trigger atau webhook)
-export async function GET(req: NextRequest) {
-  if (!isAuthorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const adminSecret = req.headers.get('x-admin-secret');
+  if (adminSecret !== process.env.ADMIN_SECRET)
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   try {
     const now = new Date().toISOString();
+    const db  = getAdmin();
 
-    // Hanya ambil real battles — arena sudah ditangani pg_cron
-    const expired = await dbSelect<Pick<DbBattle, 'id' | 'token_a' | 'token_b' | 'mode'>>(
-      'mr_battles',
-      `status=eq.live&mode=eq.real&end_time=lt.${now}&select=id,token_a,token_b,mode`,
-    );
+    const { data: expired, error: fetchErr } = await db
+      .from('mr_battles')
+      .select('id, status, payment, token_a, token_b, winner, winner_wallet, audd_pool, prize_pool')
+      .eq('status', 'live')
+      .lte('end_time', now);
 
-    const results = [];
-    for (const b of expired) {
+    if (fetchErr) throw new Error(fetchErr.message);
+    if (!expired || expired.length === 0)
+      return NextResponse.json({ resolved: 0, message: 'No expired battles' });
+
+    const results: Array<{
+      id:           string;
+      winner:       string;
+      payment:      string;
+      payoutStatus: string;
+    }> = [];
+
+    for (const battle of expired as DbBattle[]) {
       try {
-        const cmp = await compareTokens(b.token_a, b.token_b);
-        await dbPatch('mr_battles', `id=eq.${b.id}`, {
-          status:   'ended',
-          winner:   cmp.winner,
-          ended_at: now,
+        const { data: bets } = await db
+          .from('mr_bets')
+          .select('side, net_amount, wallet')
+          .eq('battle_id', battle.id);
+
+        let winner       = battle.token_a;
+        let winnerWallet: string | null = null;
+
+        if (bets && bets.length > 0) {
+          const poolA = (bets as DbBet[])
+            .filter(b => b.side === 'A')
+            .reduce((s, b) => s + (b.net_amount ?? 0), 0);
+          const poolB = (bets as DbBet[])
+            .filter(b => b.side === 'B')
+            .reduce((s, b) => s + (b.net_amount ?? 0), 0);
+
+          const winningSide = poolA >= poolB ? 'A' : 'B';
+          winner = winningSide === 'A' ? battle.token_a : battle.token_b;
+
+          const { data: topBet } = await db
+            .from('mr_bets')
+            .select('wallet')
+            .eq('battle_id', battle.id)
+            .eq('side', winningSide)
+            .order('net_amount', { ascending: false })
+            .limit(1)
+            .single();
+
+          winnerWallet = topBet?.wallet ?? null;
+        } else {
+          winner = Math.random() < 0.5 ? battle.token_a : battle.token_b;
+        }
+
+        const { error: updateErr } = await db
+          .from('mr_battles')
+          .update({ status: 'ended', winner, winner_wallet: winnerWallet, ended_at: now })
+          .eq('id', battle.id);
+
+        if (updateErr) throw new Error(updateErr.message);
+
+        let payoutStatus = 'skipped_no_wallet';
+
+        if (winnerWallet) {
+          const siteUrl     = process.env.NEXT_PUBLIC_SITE_URL!;
+          const adminHeader = { 'Content-Type': 'application/json', 'x-admin-secret': process.env.ADMIN_SECRET! };
+
+          if (battle.payment === 'AUDD') {
+            const r    = await fetch(`${siteUrl}/api/payout-audd`, {
+              method: 'POST', headers: adminHeader,
+              body:   JSON.stringify({ battleId: battle.id }),
+            });
+            const d    = await r.json() as { success?: boolean; error?: string };
+            payoutStatus = d.success ? 'audd_paid' : `audd_failed:${d.error ?? 'unknown'}`;
+          } else {
+            const r    = await fetch(`${siteUrl}/api/payout`, {
+              method: 'POST', headers: adminHeader,
+              body:   JSON.stringify({ battleId: battle.id }),
+            });
+            const d    = await r.json() as { success?: boolean; error?: string };
+            payoutStatus = d.success ? 'sol_paid' : `sol_failed:${d.error ?? 'unknown'}`;
+          }
+        }
+
+        results.push({ id: battle.id, winner, payment: battle.payment ?? 'SOL', payoutStatus });
+        console.info(`[resolve-battle] ${battle.id} → ${winner} | ${payoutStatus}`);
+
+      } catch (err) {
+        console.error(`[resolve-battle] battle ${battle.id}:`, err);
+        results.push({
+          id:           battle.id,
+          winner:       'error',
+          payment:      battle.payment ?? 'SOL',
+          payoutStatus: `error:${err instanceof Error ? err.message : String(err)}`,
         });
-        const payout = await executePayout(b.id);
-        results.push({ battleId: b.id, winner: cmp.winner, method: cmp.method, payoutOk: payout.success });
-      } catch (e) {
-        results.push({ battleId: b.id, error: String(e) });
       }
     }
 
-    const refill = await ensureMinimumBattles();
+    return NextResponse.json({ resolved: results.length, results });
 
-    return NextResponse.json({
-      resolved:  results.length,
-      results,
-      refill,
-      note:      'Arena battles resolved by Supabase pg_cron. This endpoint handles real battles only.',
-      timestamp: now,
-    });
   } catch (e) {
-    console.error('[ResolveBattle] Error:', e);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('[resolve-battle]', e);
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : String(e) },
+      { status: 500 },
+    );
   }
-    }
+                                }
