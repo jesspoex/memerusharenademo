@@ -1,10 +1,13 @@
 /**
- * hooks/useTokenMeta.ts — Step 4 final
+ * hooks/useTokenMeta.ts
  * React hook + TokenLogo component.
  *
- * useTokenMeta: instant logo via registry, async upgrade for mint addresses.
- * TokenLogo: memoized, fixed dimensions (no layout shift), onError → avatar.
- * Module-level cache — one DexScreener fetch per token per session (2 min TTL).
+ * LOGO FIX (Issue 2):
+ * - `errored` ref now resets when `symbol` or the resolved `src` changes,
+ *   so a component reused with a different token always tries the real logo first.
+ * - Fallback chain is strict: knownLogoUrl → registry → dsLookup → avatar.
+ * - `instantLogo` always returns a real URL, never undefined.
+ * - TokenLogo resets error state on prop change so logos reliably re-try.
  */
 'use client';
 
@@ -19,28 +22,34 @@ const LOGO_REGISTRY: Record<string, string> = {
   BOME:   'https://assets.coingecko.com/coins/images/35215/large/bome.png',
   MYRO:   'https://assets.coingecko.com/coins/images/33427/large/myro.png',
   PEPE:   'https://assets.coingecko.com/coins/images/29850/large/pepe-token.jpeg',
-  MRUSH:  'https://dd.dexscreener.com/ds-data/tokens/solana/E5U8dLjntnAJtM9gvFRSZTYvx8BJhvWSXQwKaWcrpump.png?size=lg&key=2f8e8c',
+  MRUSH:  '/mrush-logo.png',
+  AUDD:   'https://assets.coingecko.com/coins/images/31273/large/AUDD.png',
 };
 
 // ── Avatar fallback — always resolves, never 404 ─────────────────────────────
-function avatar(sym: string): string {
+export function avatar(sym: string): string {
   const label = (sym.length > 3 ? sym.slice(0, 3) : sym).toUpperCase();
   return `https://ui-avatars.com/api/?name=${label}&background=ea580c&color=fff&size=64&bold=true&format=png`;
 }
 
-// ── Instant logo (synchronous, zero network) ──────────────────────────────────
-function instantLogo(sym: string): string {
-  return LOGO_REGISTRY[sym.toUpperCase()] ?? avatar(sym);
+// ── Instant logo (synchronous, zero network, always a valid URL) ──────────────
+export function instantLogo(symbolOrAddress: string): string {
+  if (!symbolOrAddress) return avatar('?');
+  // For known symbols — return immediately from registry
+  const upper = symbolOrAddress.toUpperCase();
+  if (LOGO_REGISTRY[upper]) return LOGO_REGISTRY[upper];
+  // For mint addresses or unknown symbols — generate avatar instantly
+  return avatar(symbolOrAddress);
 }
 
 // ── Module-level cache (shared across all hook instances) ─────────────────────
 interface Cached {
-  symbol:   string;
-  name:     string;
-  logoUrl:  string;
-  priceUsd: number;
+  symbol:    string;
+  name:      string;
+  logoUrl:   string;
+  priceUsd:  number;
   change24h: number;
-  at:       number;
+  at:        number;
 }
 const _cache = new Map<string, Cached>();
 const TTL = 120_000; // 2 min
@@ -80,13 +89,19 @@ async function dsLookup(mint: string): Promise<Cached | null> {
     const best = pairs[0];
     const sym  = best.baseToken.symbol;
 
+    // Fallback chain for logo: imageUrl → registry → avatar
+    const logoUrl =
+      best.info?.imageUrl ||
+      LOGO_REGISTRY[sym.toUpperCase()] ||
+      avatar(sym);
+
     return {
-      symbol:   sym,
-      name:     best.baseToken.name,
-      logoUrl:  best.info?.imageUrl ?? LOGO_REGISTRY[sym.toUpperCase()] ?? avatar(sym),
-      priceUsd: parseFloat(best.priceUsd ?? '0') || 0,
+      symbol:    sym,
+      name:      best.baseToken.name,
+      logoUrl,
+      priceUsd:  parseFloat(best.priceUsd ?? '0') || 0,
       change24h: best.priceChange?.h24 ?? 0,
-      at: Date.now(),
+      at:        Date.now(),
     };
   } catch {
     return null;
@@ -95,72 +110,106 @@ async function dsLookup(mint: string): Promise<Cached | null> {
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 export interface TokenMetaResult {
-  symbol:   string;
-  name:     string;
-  logoUrl:  string;
-  priceUsd: number;
+  symbol:    string;
+  name:      string;
+  logoUrl:   string;  // always a valid URL, never empty
+  priceUsd:  number;
   change24h: number;
-  loading:  boolean;
+  loading:   boolean;
 }
 
 export function useTokenMeta(
   symbolOrAddress: string,
-  knownLogoUrl?: string, // pass gl(symbol) from parent — used instantly
+  knownLogoUrl?: string,
 ): TokenMetaResult {
   const isMint = symbolOrAddress.length >= 32;
 
-  const mkInitial = useCallback((): TokenMetaResult => ({
-    symbol:   isMint ? symbolOrAddress.slice(0, 8) : symbolOrAddress.toUpperCase(),
-    name:     symbolOrAddress.toUpperCase(),
-    logoUrl:  knownLogoUrl ?? (isMint ? avatar(symbolOrAddress) : instantLogo(symbolOrAddress)),
-    priceUsd: 0, change24h: 0,
-    loading:  isMint,
-  }), [symbolOrAddress, knownLogoUrl, isMint]);
+  // Always compute a safe initial logo — never undefined
+  const getInitial = useCallback((): TokenMetaResult => {
+    // Priority: knownLogoUrl → registry → avatar
+    const logo =
+      (knownLogoUrl && knownLogoUrl.startsWith('http') ? knownLogoUrl : null) ??
+      (!isMint ? (LOGO_REGISTRY[symbolOrAddress.toUpperCase()] ?? null) : null) ??
+      instantLogo(symbolOrAddress);
 
-  const [result, setResult] = useState<TokenMetaResult>(mkInitial);
+    return {
+      symbol:    isMint ? symbolOrAddress.slice(0, 8) : symbolOrAddress.toUpperCase(),
+      name:      symbolOrAddress.toUpperCase(),
+      logoUrl:   logo,
+      priceUsd:  0,
+      change24h: 0,
+      loading:   isMint && !knownLogoUrl,
+    };
+  }, [symbolOrAddress, knownLogoUrl, isMint]);
+
+  const [result, setResult] = useState<TokenMetaResult>(getInitial);
 
   useEffect(() => {
     if (!symbolOrAddress) return;
     const key = symbolOrAddress.toLowerCase();
 
+    // Cache hit — use immediately
     const hit = _cache.get(key);
     if (hit && Date.now() - hit.at < TTL) {
-      setResult({ symbol: hit.symbol, name: hit.name, logoUrl: hit.logoUrl,
+      // Prefer knownLogoUrl over cached if it looks valid (component refresh)
+      const logo =
+        (knownLogoUrl && knownLogoUrl.startsWith('http') ? knownLogoUrl : null) ??
+        hit.logoUrl;
+      setResult({ symbol: hit.symbol, name: hit.name, logoUrl: logo,
         priceUsd: hit.priceUsd, change24h: hit.change24h, loading: false });
       return;
     }
 
     if (!isMint) {
-      const logo = knownLogoUrl ?? instantLogo(symbolOrAddress);
+      // Symbol-only — instant resolution, no async needed
+      const logo =
+        (knownLogoUrl && knownLogoUrl.startsWith('http') ? knownLogoUrl : null) ??
+        LOGO_REGISTRY[symbolOrAddress.toUpperCase()] ??
+        avatar(symbolOrAddress);
       const r: TokenMetaResult = {
-        symbol: symbolOrAddress.toUpperCase(), name: symbolOrAddress.toUpperCase(),
-        logoUrl: logo, priceUsd: 0, change24h: 0, loading: false,
+        symbol:    symbolOrAddress.toUpperCase(),
+        name:      symbolOrAddress.toUpperCase(),
+        logoUrl:   logo,
+        priceUsd:  0,
+        change24h: 0,
+        loading:   false,
       };
       setResult(r);
       _cache.set(key, { ...r, at: Date.now() });
       return;
     }
 
-    // Mint address: show avatar instantly, upgrade async
-    setResult(mkInitial());
+    // Mint address: show best available logo instantly, upgrade async
+    setResult(getInitial());
     let cancelled = false;
+
     dsLookup(symbolOrAddress).then(meta => {
       if (cancelled) return;
       if (meta) {
-        setResult({ ...meta, loading: false });
-        _cache.set(key, meta);
+        // Prefer knownLogoUrl if provided (already known from battle data)
+        const logo =
+          (knownLogoUrl && knownLogoUrl.startsWith('http') ? knownLogoUrl : null) ??
+          meta.logoUrl;
+        const resolved = { ...meta, logoUrl: logo };
+        setResult({ ...resolved, loading: false });
+        _cache.set(key, resolved);
       } else {
         setResult(prev => ({ ...prev, loading: false }));
       }
     });
+
     return () => { cancelled = true; };
-  }, [symbolOrAddress, knownLogoUrl, isMint, mkInitial]);
+  // knownLogoUrl intentionally excluded — only refresh on symbol change
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbolOrAddress, isMint]);
 
   return result;
 }
 
 // ── TokenLogo ─────────────────────────────────────────────────────────────────
-// Fixed size = no layout shift. onError → avatar. memo = no unnecessary rerenders.
+// Fixed size = no layout shift.
+// BUG FIX: `errored` ref now resets when `symbol` or `logoUrl` prop changes
+// so a reused component always attempts the new logo first.
 interface TokenLogoProps {
   symbol:     string;
   logoUrl?:   string;
@@ -172,16 +221,46 @@ interface TokenLogoProps {
 export const TokenLogo = memo(function TokenLogo({
   symbol, logoUrl, size = 40, className = '', style,
 }: TokenLogoProps) {
-  const meta       = useTokenMeta(symbol, logoUrl);
-  const [src, setSrc] = useState(meta.logoUrl);
-  const errored    = useRef(false);
+  const meta    = useTokenMeta(symbol, logoUrl);
 
+  // Compute the best src to try: explicit prop → resolved meta → avatar
+  const bestSrc =
+    (logoUrl && logoUrl.startsWith('http') ? logoUrl : null) ??
+    meta.logoUrl ??
+    avatar(symbol);
+
+  const [src, setSrc]   = useState<string>(bestSrc);
+  const errored         = useRef(false);
+  const prevSymbol      = useRef(symbol);
+  const prevLogoUrl     = useRef(logoUrl);
+
+  // Reset error state when symbol or logoUrl prop changes
   useEffect(() => {
-    if (!errored.current) setSrc(meta.logoUrl);
-  }, [meta.logoUrl]);
+    const symbolChanged  = prevSymbol.current  !== symbol;
+    const logoChanged    = prevLogoUrl.current !== logoUrl;
+    if (symbolChanged || logoChanged) {
+      errored.current      = false;
+      prevSymbol.current   = symbol;
+      prevLogoUrl.current  = logoUrl;
+    }
+  }, [symbol, logoUrl]);
+
+  // Upgrade src when meta resolves (only if not already errored on this src)
+  useEffect(() => {
+    if (!errored.current) {
+      const next =
+        (logoUrl && logoUrl.startsWith('http') ? logoUrl : null) ??
+        meta.logoUrl ??
+        avatar(symbol);
+      setSrc(next);
+    }
+  }, [meta.logoUrl, logoUrl, symbol]);
 
   const onError = useCallback(() => {
-    if (!errored.current) { errored.current = true; setSrc(avatar(symbol)); }
+    if (!errored.current) {
+      errored.current = true;
+      setSrc(avatar(symbol));
+    }
   }, [symbol]);
 
   return (
