@@ -28,6 +28,12 @@ export async function executePayout(battleId: string): Promise<BattlePayoutResul
   if (!battle.winner)            return { success: false, battleId, error: 'Winner not set yet' };
 
   const bets = await getBetsForBattle(battleId);
+
+  // Fairness/refund mode. resolve-battle sets winner='REFUND' when a battle has
+  // no real opponent, only one wallet, or deposits on only one side. Do not pay a
+  // fake winner — return deposits instead.
+  if (battle.winner === 'REFUND') return refundAllEntries(battle, bets);
+
   if (bets.length === 0) return refundCreator(battle);
 
   const winnerSide = battle.winner === battle.token_a ? 'A' : 'B';
@@ -79,7 +85,8 @@ async function payoutProportional(battle: DbBattle, winnerBets: DbBet[], allBets
 }
 
 async function refundCreator(battle: DbBattle): Promise<BattlePayoutResult> {
-  const refund = parseFloat((battle.total_deposited * 0.98).toFixed(6));
+  // No competition = no fee. Return the creator deposit as closely as possible.
+  const refund = parseFloat((battle.total_deposited ?? battle.amount ?? 0).toFixed(6));
   if (refund < MIN_PAYOUT_SOL) {
     await markPaid(battle.id, 'NO_BETS', battle.creator, 'REFUND', 0);
     return { success: true, battleId: battle.id, error: 'No bets placed' };
@@ -90,12 +97,35 @@ async function refundCreator(battle: DbBattle): Promise<BattlePayoutResult> {
 }
 
 async function refundAll(battle: DbBattle, bets: DbBet[]): Promise<BattlePayoutResult> {
-  for (const bet of bets) {
-    const refund = parseFloat((bet.net_amount * 0.98).toFixed(6));
-    if (refund >= MIN_PAYOUT_SOL) await sendSolFromTreasury(bet.wallet, refund);
+  return refundAllEntries(battle, bets);
+}
+
+async function refundAllEntries(battle: DbBattle, bets: DbBet[]): Promise<BattlePayoutResult> {
+  if (bets.length === 0) return refundCreator(battle);
+
+  let lastTx = '';
+  let lastWallet = '';
+  let totalRefunded = 0;
+
+  // Group by wallet so top-ups are refunded once per wallet. No platform fee when
+  // there was no valid battle/opponent.
+  const byWallet = new Map<string, number>();
+  for (const bet of bets) byWallet.set(bet.wallet, parseFloat(((byWallet.get(bet.wallet) ?? 0) + (bet.amount ?? 0)).toFixed(6)));
+
+  for (const [wallet, amount] of Array.from(byWallet.entries())) {
+    const refund = parseFloat(amount.toFixed(6));
+    if (refund < MIN_PAYOUT_SOL) continue;
+    const r = await sendSolFromTreasury(wallet, refund);
+    if (r.success) {
+      lastTx = r.txHash ?? lastTx;
+      lastWallet = wallet;
+      totalRefunded = parseFloat((totalRefunded + refund).toFixed(6));
+      await dbInsert('mr_activities', { wallet: shortWallet(wallet), action: 'refunded', amount: refund, battle: battle.id, tx_hash: r.txHash, created_at: new Date().toISOString() });
+    }
   }
-  await markPaid(battle.id, 'NO_WINNER_BETS', '', battle.winner ?? '', 0);
-  return { success: true, battleId: battle.id, error: 'No bets on winning side — refunded' };
+
+  await markPaid(battle.id, lastTx || 'REFUND_NO_TX', lastWallet, 'REFUND', totalRefunded);
+  return { success: true, battleId: battle.id, winnerWallet: lastWallet, winnerToken: 'REFUND', payoutSol: totalRefunded, txHash: lastTx, error: 'Battle had no valid opponent — refunded' };
 }
 
 async function markPaid(battleId: string, txHash: string, winnerWallet: string, winnerToken: string, payoutSol: number): Promise<void> {

@@ -193,4 +193,4 @@ async function cleanupExpired(): Promise<void> {
     for (const b of expired) await dbPatch('mr_battles', `id=eq.${b.id}`, { status: 'paid', ended_at: now });
     if (expired.length) console.log(`[EnsureBattles] Cleaned ${expired.length} expired`);
   } catch { /* non-critical */ }
-}
+    }

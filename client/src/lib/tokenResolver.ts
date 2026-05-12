@@ -21,7 +21,7 @@ export const LOGO_REGISTRY: Record<string, string> = {
   BOME:   'https://assets.coingecko.com/coins/images/35215/large/bome.png',
   MYRO:   'https://assets.coingecko.com/coins/images/33427/large/myro.png',
   PEPE:   'https://assets.coingecko.com/coins/images/29850/large/pepe-token.jpeg',
-  MRUSH:  'https://dd.dexscreener.com/ds-data/tokens/solana/E5U8dLjntnAJtM9gvFRSZTYvx8BJhvWSXQwKaWcrpump.png?size=lg&key=2f8e8c',
+  MRUSH:  '/mrush-logo.png',
 };
 
 // ── Fallback #5: generated initials avatar — never fails ─────────────────────

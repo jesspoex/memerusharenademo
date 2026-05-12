@@ -43,9 +43,9 @@ export interface DbActivity {
   amount?: number; battle?: string; tx_hash?: string; created_at: string;
 }
 
-const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://wlpgpjebwwublxfcpjos.supabase.co';
+const SB_URL     = process.env.NEXT_PUBLIC_SUPABASE_URL  || '';
 const SB_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const SB_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndscGdwamVid3d1Ymx4ZmNwam9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3NzI4MjYsImV4cCI6MjA5MDM0ODgyNn0.nAiMQ59OSo8fB_OlzTNWDYW4G5qNIAlGEQVTODArypM';
+const SB_ANON    = process.env.NEXT_PUBLIC_SUPABASE_ANON || '';
 
 function sbH(useService = true): Record<string, string> {
   const key = useService ? SB_SERVICE : SB_ANON;
