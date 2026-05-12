@@ -1,32 +1,107 @@
 'use client';
-import React from 'react';
-import { Battle, Token, CFG, sf, fmtT } from '../constants';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { Battle, Token, sf, fmtT } from '../constants';
 
 interface Props {
-  battle:   Battle;
-  tokens:   Token[];
-  glFn:     (sym: string) => string;
-  onClick:  () => void;
+  battle:  Battle;
+  tokens:  Token[];
+  glFn:    (sym: string) => string;
+  onClick: () => void;
 }
 
+// ── Logo registry — coingecko primary, zero fallback SVG ──────────────────────
+const REG: Record<string, string> = {
+  SOL:    'https://assets.coingecko.com/coins/images/4128/large/solana.png',
+  BONK:   'https://assets.coingecko.com/coins/images/28600/large/bonk.jpg',
+  WIF:    'https://assets.coingecko.com/coins/images/33567/large/dogwifhat.jpg',
+  POPCAT: 'https://assets.coingecko.com/coins/images/33908/large/popcat.png',
+  BOME:   'https://assets.coingecko.com/coins/images/35215/large/bome.png',
+  MYRO:   'https://assets.coingecko.com/coins/images/33427/large/myro.png',
+  PEPE:   'https://assets.coingecko.com/coins/images/29850/large/pepe-token.jpeg',
+  MRUSH:  '/mrush-logo.png',
+  AUDD:   'https://assets.coingecko.com/coins/images/31273/large/AUDD.png',
+};
+
+const BAK: Record<string, string> = {
+  SOL:    'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+  BONK:   'https://dd.dexscreener.com/ds-data/tokens/solana/DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263.png?size=lg&key=2f8e8c',
+  WIF:    'https://dd.dexscreener.com/ds-data/tokens/solana/EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm.png?size=lg&key=2f8e8c',
+  POPCAT: 'https://dd.dexscreener.com/ds-data/tokens/solana/7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr.png?size=lg&key=2f8e8c',
+  BOME:   'https://dd.dexscreener.com/ds-data/tokens/solana/ukHH6c7mMyiWCf1b9pnWe25TSpkDDt3H5pQZgZ74J82.png?size=lg&key=2f8e8c',
+  MYRO:   'https://dd.dexscreener.com/ds-data/tokens/solana/HhJpBhRRn4g56VsyLuT8DL5Bv31HkXqsrahTTUCZeZg4.png?size=lg&key=2f8e8c',
+  PEPE:   'https://assets.coingecko.com/coins/images/29850/small/pepe-token.jpeg',
+  MRUSH:  '/mrush-logo.png',
+};
+
+function svgAvatar(sym: string): string {
+  const label = (sym || '?').slice(0, 2).toUpperCase();
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'><circle cx='20' cy='20' r='20' fill='%23ea580c'/><text x='20' y='26' text-anchor='middle' font-family='system-ui,sans-serif' font-weight='bold' font-size='14' fill='white'>${label}</text></svg>`;
+  return `data:image/svg+xml,${svg}`;
+}
+
+function getBestUrl(sym: string, glFn: (s: string) => string, tokens: Token[]): string {
+  const key = sym.toUpperCase();
+  // 1. Static registry (instant, no network)
+  if (REG[key]) return REG[key];
+  // 2. tokens[] from app state
+  const tok = tokens.find(t => t.symbol.toUpperCase() === key);
+  if (tok?.logoUrl && tok.logoUrl.startsWith('http') && !tok.logoUrl.includes('ui-avatars')) return tok.logoUrl;
+  // 3. gl() from parent (page.tsx cache)
+  const g = glFn(sym);
+  if (g && g.startsWith('http') && !g.includes('ui-avatars')) return g;
+  // 4. Avatar
+  return svgAvatar(sym);
+}
+
+// ── TokenImg: 3-stage fallback, never shows broken icon ──────────────────────
+function TokenImg({ sym, glFn, tokens, size = 40, className = '' }: {
+  sym: string; glFn: (s: string) => string; tokens: Token[];
+  size?: number; className?: string;
+}) {
+  const initial = getBestUrl(sym, glFn, tokens);
+  const [src, setSrc] = useState(initial);
+  const stage = useRef(0);
+  const key   = sym.toUpperCase();
+
+  // Update if glFn result changes (async logo loaded in parent)
+  useEffect(() => {
+    const fresh = getBestUrl(sym, glFn, tokens);
+    if (fresh !== src && !fresh.startsWith('data:')) { stage.current = 0; setSrc(fresh); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sym, glFn]);
+
+  const onError = useCallback(() => {
+    stage.current += 1;
+    if (stage.current === 1 && BAK[key]) { setSrc(BAK[key]); return; }
+    setSrc(svgAvatar(sym));
+  }, [sym, key]);
+
+  return (
+    <img
+      src={src} alt={sym} width={size} height={size}
+      onError={onError} loading="lazy" decoding="async"
+      className={`rounded-full object-cover ${className}`}
+      style={{ width: size, height: size, minWidth: size, minHeight: size }}
+    />
+  );
+}
+
+// ── BattleCard ────────────────────────────────────────────────────────────────
 export function BattleCard({ battle, tokens, glFn, onClick }: Props) {
-  const aL     = battle.chartA[battle.chartA.length - 1] ?? 0;
-  const bL     = battle.chartB[battle.chartB.length - 1] ?? 0;
-  const leadA  = aL >= bL;
-  const tl     = Math.max(0, Math.floor((battle.endTime - Date.now()) / 1000));
+  const aL    = battle.chartA[battle.chartA.length - 1] ?? 0;
+  const bL    = battle.chartB[battle.chartB.length - 1] ?? 0;
+  const leadA = aL >= bL;
+  const tl    = Math.max(0, Math.floor((battle.endTime - Date.now()) / 1000));
   const ending = tl < 20;
   const isReal = (battle.mode ?? 'arena') === 'real';
   const isHot  = battle.players >= 3 || isReal;
   const pct    = Math.min(100, Math.max(0, ((battle.duration - tl) / battle.duration) * 100));
 
-  const fmt = (p: number) => p <= 0 ? '' : p < 0.001 ? `$${p.toFixed(6)}` : p < 1 ? `$${p.toFixed(4)}` : `$${p.toFixed(2)}`;
-  const pA  = tokens.find(t => t.symbol === battle.tokenA)?.price ?? 0;
-  const pB  = tokens.find(t => t.symbol === battle.tokenB)?.price ?? 0;
-
-  const pctA  = Math.round((battle.chartA.filter(v => v >= 0).length / Math.max(battle.chartA.length, 1)) * 100);
-  const pctB  = 100 - pctA;
-
-  const ph = (s: string) => `https://ui-avatars.com/api/?name=${s}&background=ea580c&color=fff&size=40`;
+  const fmt  = (p: number) => p <= 0 ? '' : p < 0.001 ? `$${p.toFixed(6)}` : p < 1 ? `$${p.toFixed(4)}` : `$${p.toFixed(2)}`;
+  const pA   = tokens.find(t => t.symbol === battle.tokenA)?.price ?? 0;
+  const pB   = tokens.find(t => t.symbol === battle.tokenB)?.price ?? 0;
+  const pctA = Math.round((battle.chartA.filter(v => v >= 0).length / Math.max(battle.chartA.length, 1)) * 100);
+  const pctB = 100 - pctA;
 
   return (
     <div
@@ -53,7 +128,7 @@ export function BattleCard({ battle, tokens, glFn, onClick }: Props) {
           {!isReal && !isHot && <span className="text-[8px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(30,41,59,.5)', color: 'rgba(71,85,105,1)' }}>AUTO</span>}
           <span className="text-[9px] text-slate-600">· {battle.players} in</span>
         </div>
-        <span className={`font-mono font-black text-sm tabular-nums px-2 py-0.5 rounded-lg ${ending ? 'text-red-400 animate-pulse' : ''}`}
+        <span className="font-mono font-black text-sm tabular-nums px-2 py-0.5 rounded-lg"
           style={{ color: ending ? '#f87171' : '#fb923c', background: ending ? 'rgba(239,68,68,.1)' : 'rgba(30,15,5,.6)' }}>
           {fmtT(tl)}
         </span>
@@ -66,7 +141,8 @@ export function BattleCard({ battle, tokens, glFn, onClick }: Props) {
           style={{ background: leadA ? 'rgba(249,115,22,.07)' : 'rgba(255,255,255,.02)' }}>
           <div className="flex items-center gap-2">
             <div className="relative flex-shrink-0">
-              <img src={glFn(battle.tokenA)} alt={battle.tokenA} className={`w-10 h-10 rounded-full border-2 transition-all ${leadA ? 'border-orange-400/50' : 'border-white/10'}`} onError={e => (e.target as HTMLImageElement).src = ph(battle.tokenA)} />
+              <TokenImg sym={battle.tokenA} glFn={glFn} tokens={tokens} size={40}
+                className={`border-2 transition-all ${leadA ? 'border-orange-400/50' : 'border-white/10'}`}/>
               {leadA && <div className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500 rounded-full flex items-center justify-center text-[7px] font-black text-black">▲</div>}
             </div>
             <div className="min-w-0 flex-1">
@@ -107,7 +183,8 @@ export function BattleCard({ battle, tokens, glFn, onClick }: Props) {
           style={{ background: !leadA ? 'rgba(249,115,22,.07)' : 'rgba(255,255,255,.02)' }}>
           <div className="flex items-center gap-2 flex-row-reverse">
             <div className="relative flex-shrink-0">
-              <img src={glFn(battle.tokenB)} alt={battle.tokenB} className={`w-10 h-10 rounded-full border-2 transition-all ${!leadA ? 'border-orange-400/50' : 'border-white/10'}`} onError={e => (e.target as HTMLImageElement).src = ph(battle.tokenB)} />
+              <TokenImg sym={battle.tokenB} glFn={glFn} tokens={tokens} size={40}
+                className={`border-2 transition-all ${!leadA ? 'border-orange-400/50' : 'border-white/10'}`}/>
               {!leadA && <div className="absolute -top-1 -left-1 w-4 h-4 bg-orange-500 rounded-full flex items-center justify-center text-[7px] font-black text-black">▲</div>}
             </div>
             <div className="min-w-0 flex-1 text-right">
