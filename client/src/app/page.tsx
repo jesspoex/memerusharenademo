@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
 // ── SHARED THEME (inline — same tokens as lib/theme.ts) ──────────────────────
@@ -24,7 +24,7 @@ const C = {
   TWITTER:  'https://x.com/memerusharena',
   TELEGRAM: 'https://t.me/memerusharena',
   DISCORD:  'https://discord.gg/xWYWxe5wxG',
-  LOGO:     '/logomeme.png',
+  LOGO:     '/mrush-logo.png',
   SITE:     process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.meemerush.xyz',
   MIN_SOL:  '0.001',
   MIN_USD:  '~$0.10',
@@ -50,9 +50,10 @@ const TOKEN_LOGOS: Record<string,string> = {
   MYRO:   'https://assets.coingecko.com/coins/images/33427/large/myro.png',
   SOL:    'https://assets.coingecko.com/coins/images/4128/large/solana.png',
   PEPE:   'https://assets.coingecko.com/coins/images/29850/large/pepe-token.jpeg',
-  MRUSH:  `https://dd.dexscreener.com/ds-data/tokens/solana/E5U8dLjntnAJtM9gvFRSZTYvx8BJhvWSXQwKaWcrpump.png?size=lg&key=2f8e8c`,
+  MRUSH:  '/mrush-logo.png',
 };
-const logo = (s: string) => TOKEN_LOGOS[s] ?? `https://ui-avatars.com/api/?name=${s}&background=ea580c&color=fff&size=40`;
+const fallbackLogo = (s: string) => `https://ui-avatars.com/api/?name=${encodeURIComponent(s)}&background=ea580c&color=fff&bold=true&size=96`;
+const logo = (s: string) => TOKEN_LOGOS[(s || '').toUpperCase()] ?? fallbackLogo(s);
 
 // ── HOOKS ─────────────────────────────────────────────────────────────────────
 function useCountdown(end: string|undefined) {
@@ -128,7 +129,7 @@ function BattleCard({ b, go }: { b: ApiBattle; go: ()=>void }) {
           style={{background:aL?'rgba(249,115,22,.07)':'rgba(255,255,255,.02)'}}>
           <div className="flex items-center gap-2">
             <div className="relative flex-shrink-0">
-              <img src={logo(b.token_a)} alt={b.token_a} className="w-9 h-9 rounded-full border-2" style={{borderColor:aL?'rgba(249,115,22,.5)':'rgba(255,255,255,.1)'}} onError={e=>(e.target as HTMLImageElement).src=logo(b.token_a)}/>
+              <img src={logo(b.token_a)} alt={b.token_a} className="w-9 h-9 rounded-full border-2" style={{borderColor:aL?'rgba(249,115,22,.5)':'rgba(255,255,255,.1)'}} onError={e=>{ e.currentTarget.onerror=null; e.currentTarget.src=fallbackLogo(b.token_a); }}/>
               {aL&&<div className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-black text-black" style={{background:'#f97316'}}>▲</div>}
             </div>
             <div>
@@ -147,7 +148,7 @@ function BattleCard({ b, go }: { b: ApiBattle; go: ()=>void }) {
           style={{background:!aL?'rgba(249,115,22,.07)':'rgba(255,255,255,.02)'}}>
           <div className="flex items-center gap-2 flex-row-reverse">
             <div className="relative flex-shrink-0">
-              <img src={logo(b.token_b)} alt={b.token_b} className="w-9 h-9 rounded-full border-2" style={{borderColor:!aL?'rgba(249,115,22,.5)':'rgba(255,255,255,.1)'}} onError={e=>(e.target as HTMLImageElement).src=logo(b.token_b)}/>
+              <img src={logo(b.token_b)} alt={b.token_b} className="w-9 h-9 rounded-full border-2" style={{borderColor:!aL?'rgba(249,115,22,.5)':'rgba(255,255,255,.1)'}} onError={e=>{ e.currentTarget.onerror=null; e.currentTarget.src=fallbackLogo(b.token_b); }}/>
               {!aL&&<div className="absolute -top-1 -left-1 w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-black text-black" style={{background:'#f97316'}}>▲</div>}
             </div>
             <div className="text-right">
@@ -248,6 +249,12 @@ function InfraRow({ label, status, note, pct }: { label:string; status:'online'|
   );
 }
 
+const isActiveBattle = (b: ApiBattle) => {
+  if (b.status !== 'live') return false;
+  if (!b.end_time) return true;
+  return new Date(b.end_time).getTime() > Date.now();
+};
+
 // ── MAIN PAGE ─────────────────────────────────────────────────────────────────
 export default function HomePage() {
   const router = useRouter();
@@ -265,7 +272,11 @@ export default function HomePage() {
     try {
       const res  = await fetch('/api/battles?status=live&limit=6',{cache:'no-store'});
       const data = await res.json() as {battles?:ApiBattle[]};
-      setBattles((data.battles??[]).filter(b=>b.status==='live'));
+      const live = (data.battles??[]).filter(isActiveBattle);
+      setBattles(live);
+      // Keep homepage visually synced with /trade. Stats API can lag; live cards are the source for visible players.
+      setTotalPlayers(live.reduce((sum,b)=>sum+(b.players??0),0));
+      setTotalBattles(live.length);
     } catch {}
     finally { setLoading(false); }
   },[]);
@@ -274,8 +285,7 @@ export default function HomePage() {
     try {
       const res  = await fetch('/api/stats',{cache:'no-store'});
       const data = await res.json() as ApiStats;
-      if(data.players!==undefined)  setTotalPlayers(data.players);
-      if(data.battles!==undefined)  setTotalBattles(data.battles);
+      // Volume / payouts come from stats. Players / active battle count stay synced to live feed.
       if(data.volSol!==undefined)   setTotalVol(data.volSol);
       if(data.paidSol!==undefined)  setTotalPaid(data.paidSol);
     } catch {}
@@ -285,7 +295,7 @@ export default function HomePage() {
     setMounted(true);
     fetchBattles();
     fetchStats();
-    const i1=setInterval(fetchBattles,10_000);
+    const i1=setInterval(fetchBattles,5_000);
     const i2=setInterval(fetchStats,30_000);
     return ()=>{ clearInterval(i1); clearInterval(i2); };
   },[fetchBattles,fetchStats]);
@@ -314,7 +324,7 @@ export default function HomePage() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60" style={{background:'#f97316'}}/>
               <span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{background:'#f97316'}}/>
             </span>
-            LIVE · Solana Mainnet
+            LIVE · Solana Hybrid MVP
           </div>
           <button onClick={go} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-black text-white transition-all hover:opacity-90 active:scale-95 shrink-0 mr-glow-btn" style={{background:G.primary,boxShadow:S.primaryBtnSm}}>
             ⚔️ ENTER ARENA
@@ -329,12 +339,12 @@ export default function HomePage() {
             <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full font-black" style={{background:'rgba(249,115,22,.1)',color:'#fb923c',border:'1px solid rgba(249,115,22,.2)'}}>
               ⚡ Built for Bags Ecosystem
             </span>
-            <span style={{color:'rgba(71,85,105,1)'}}>Token launch &amp; trading powered by Bags</span>
+            <span style={{color:'rgba(71,85,105,1)'}}>Token launch path + battle trading layer built for Bags</span>
           </div>
           <div className="flex items-center gap-3">
             {[
               {dot:'#f97316', label:'Battle engine running'},
-              {dot:'#fbbf24', label:'Mainnet integration in progress'},
+              {dot:'#fbbf24', label:'Hybrid mainnet settlement active'},
               {dot:'#4ade80', label:'Actively shipping'},
             ].map(b=>(
               <span key={b.label} className="hidden sm:flex items-center gap-1 text-[9px] font-medium" style={{color:'rgba(100,116,139,1)'}}>
@@ -363,21 +373,21 @@ export default function HomePage() {
               {battles.length>0?`${battles.length} LIVE BATTLES NOW`:'LIVE ON SOLANA MAINNET'}
             </div>
             <h1 className="text-[clamp(28px,7vw,52px)] font-black leading-[1.04] tracking-tight mb-4">
-              <span className="bg-clip-text text-transparent" style={{backgroundImage:G.brand}}>Battle Memecoins.</span>
+              <span className="bg-clip-text text-transparent" style={{backgroundImage:G.brand}}>Pick a Side.</span>
               <br/>
-              <span className="text-white">Win the Pool.</span>
+              <span className="text-white">Claim the Pool.</span>
             </h1>
             <p className="text-[13px] mb-8 leading-relaxed" style={{color:'rgba(100,116,139,1)'}}>
-              Pick a token, join a battle from{' '}
+              Every battle has one winner. Join from{' '}
               <span className="text-white font-semibold">{C.MIN_SOL} SOL ({C.MIN_USD})</span>
-              {' '}— winner takes pool, paid instantly on-chain.
+              {' '}— battle results update live on Solana mainnet.
             </p>
             <button onClick={go} className="inline-flex items-center gap-3 px-12 py-4 rounded-2xl text-lg font-black text-white transition-all hover:scale-[1.04] active:scale-95 mr-glow-btn"
               style={{background:G.primary,boxShadow:S.primaryBtn}}>
               ⚔️ ENTER ARENA
             </button>
             <p className="text-[11px] mt-4" style={{color:'rgba(71,85,105,1)'}}>No signup · No KYC · Wallet = identity</p>
-            <p className="text-[11px] mt-1.5" style={{color:'rgba(100,116,139,.6)'}}>Early users testing live battles</p>
+            <p className="text-[11px] mt-1.5" style={{color:'rgba(100,116,139,.6)'}}>Live MVP · hybrid treasury settlement · early users testing</p>
             {/* Bags ecosystem signal */}
             <div className="inline-flex items-center gap-1.5 mt-4 px-3 py-1.5 rounded-full border text-[10px] font-bold" style={{background:'rgba(249,115,22,.05)',borderColor:'rgba(249,115,22,.15)',color:'rgba(251,146,60,.7)'}}>
               ⚡ Bags ecosystem · MRUSH token launching via Bags
@@ -400,10 +410,10 @@ export default function HomePage() {
         {/* ── VISION ────────────────────────────────────────────────────────── */}
         <section className="text-center px-4">
           <p className="text-[13px] leading-relaxed max-w-lg mx-auto" style={{color:'rgba(148,163,184,.7)'}}>
-            The future of trading is competitive, real-time, and social.
+            Competitive trading should feel live, social, and verifiable.
           </p>
           <p className="text-[13px] font-semibold mt-1" style={{color:'rgba(251,146,60,.65)'}}>
-            MemeRush is building that layer.
+            MemeRush turns memecoin moves into PvP battles.
           </p>
         </section>
 
@@ -422,11 +432,11 @@ export default function HomePage() {
               <span style={{color:'#f97316'}}>{battles.length} Battles</span>
               <span style={{color:'#fbbf24'}}>{totalVol.toFixed(1)} SOL Vol</span>
               <span style={{color:'#fb923c'}}>{totalPlayers} Players</span>
-              <span style={{color:'rgba(100,116,139,.8)'}}>Solana Mainnet</span>
+              <span style={{color:'rgba(100,116,139,.8)'}}>Hybrid Mainnet</span>
             </div>
             <div className="ml-auto shrink-0 flex items-center gap-1.5 text-[10px] font-mono" style={{color:'rgba(71,85,105,1)'}}>
               <span className="w-1.5 h-1.5 rounded-full" style={{background:'#f97316'}}/>
-              Mainnet
+              Synced
             </div>
           </div>
         </section>
@@ -495,7 +505,7 @@ export default function HomePage() {
             {/* Badge instead of duplicate button */}
             <div className="flex flex-col items-center gap-2 shrink-0">
               <div className="px-4 py-2.5 rounded-full border text-[11px] font-black text-center" style={{background:'rgba(249,115,22,.08)',borderColor:'rgba(249,115,22,.25)',color:'#fb923c'}}>
-                Built on Solana • Live Mainnet
+                Solana Mainnet • Hybrid MVP
               </div>
               <a href={`https://solscan.io/account/${C.TREASURY}`} target="_blank" rel="noopener noreferrer" className="text-[10px] font-mono hover:text-orange-400 transition-colors" style={{color:'rgba(71,85,105,1)'}}>
                 {C.TREASURY.slice(0,6)}…{C.TREASURY.slice(-4)} ↗
@@ -515,7 +525,7 @@ export default function HomePage() {
               <InfraRow label="Battle Engine"   status="online"   note="Auto-generating · 24/7"/>
               <InfraRow label="Treasury Wallet" status="online"   note="Public · Solscan verified"/>
               <InfraRow label="Supabase DB"     status="online"   note="Realtime battle state"/>
-              <InfraRow label="Auto Settlement" status="online"   note="Winner paid on-chain"/>
+              <InfraRow label="Settlement Route" status="online"   note="Payout route active"/>
               <InfraRow label="Mainnet Live"    status="building" note="Active · Final polish" pct={93}/>
             </div>
           </section>
@@ -528,7 +538,7 @@ export default function HomePage() {
             <div className="space-y-4">
               {[
                 {label:'Devnet Testing',      pct:100, s:'done'     as const, note:'✓ Completed'},
-                {label:'Mainnet Integration', pct:93,  s:'building' as const, note:'93% · Active'},
+                {label:'Hybrid Mainnet', pct:93,  s:'building' as const, note:'93% · Active'},
                 {label:'Public Launch',       pct:25,  s:'building' as const, note:'Soon'},
                 {label:'Voting / Staking',    pct:0,   s:'planned'  as const, note:'Planned'},
               ].map(r=>{
@@ -565,10 +575,10 @@ export default function HomePage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[
-              {icon:'🔗', title:'On-Chain Settlement',   desc:'Every battle settles on Solana. Fully transparent, fully verifiable on Solscan.'},
-              {icon:'🔐', title:'No Custody',            desc:'Non-custodial by design. Your wallet, your funds — always. We never touch them.'},
-              {icon:'📊', title:'Transparent Logic',     desc:'Winners are determined solely by live price performance. No admin control over outcomes.'},
-              {icon:'💸', title:'Public Treasury',       desc:'Every platform fee flows to a public wallet. Audit anytime, no permission needed.'},
+              {icon:'🔗', title:'On-Chain Settlement',   desc:'Battle activity is tracked on Solana with a public treasury wallet for transparent settlement review.'},
+              {icon:'🔐', title:'Wallet-First Flow',            desc:'Users connect their own wallet and sign actions. The treasury wallet is public for auditability.'},
+              {icon:'📊', title:'Transparent Logic',     desc:'Winners are based on live battle price movement from start to finish, with clear percentage comparison.'},
+              {icon:'💸', title:'Public Treasury',       desc:'Platform fees flow through a public treasury wallet. Anyone can inspect activity on Solscan.'},
             ].map(f=>(
               <div key={f.title} className="flex gap-3 p-3.5 rounded-xl border" style={{background:'rgba(255,255,255,.02)',borderColor:'rgba(249,115,22,.07)'}}>
                 <span className="text-xl shrink-0 mt-0.5">{f.icon}</span>
@@ -600,8 +610,8 @@ export default function HomePage() {
           </div>
           <div className="space-y-3">
             {[
-              {icon:'🚀', title:'Seamless Token Launch',      desc:'MRUSH will launch via Bags — integrated distribution, no friction, aligned community.'},
-              {icon:'⚡', title:'Integrated Trading Layer',   desc:'Bags powers the trading mechanics inside battles, enabling real-time in-battle markets.'},
+              {icon:'🚀', title:'Seamless Token Launch',      desc:'MRUSH is planned to launch via Bags — aligned distribution for the battle community.'},
+              {icon:'⚡', title:'Integrated Trading Layer',   desc:'MemeRush is designed to plug into the Bags ecosystem with fast, game-based trading loops.'},
               {icon:'📈', title:'Scalable for Gamified Markets', desc:'Designed for high-frequency, game-based trading markets — exactly what MemeRush generates.'},
             ].map(r=>(
               <div key={r.title} className="flex gap-3 items-start py-3 border-b last:border-0" style={{borderColor:'rgba(249,115,22,.06)'}}>
@@ -653,20 +663,20 @@ export default function HomePage() {
               </div>
               <h3 className="text-base font-black text-white">Core Utility Token for MemeRush</h3>
               <p className="text-[11px] mt-1 mb-1 font-semibold" style={{color:'rgba(203,213,225,.8)'}}>
-                MRUSH powers every battle, reward, and fee in the MemeRush ecosystem.
+                MRUSH is planned to power battle perks, rewards, and fee discounts in the MemeRush ecosystem.
               </p>
               <p className="text-[11px] flex items-center gap-1.5" style={{color:'rgba(100,116,139,1)'}}>
                 <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-black" style={{background:'rgba(249,115,22,.1)',color:'#fb923c',border:'1px solid rgba(249,115,22,.2)'}}>⚡ Bags</span>
-                Launching via Bags · Battles, rewards, and fees all powered by MRUSH
+                Planned Bags launch · battle rewards and fee perks powered by MRUSH
               </p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2.5">
             {[
-              {icon:'⚔️', t:'Battle Entry',   d:'Pay entry with SOL or MRUSH'},
-              {icon:'💹', t:'RushTrade Fees', d:'Reduced fees for MRUSH holders'},
+              {icon:'⚔️', t:'Battle Entry',   d:'Pay entry with SOL now; MRUSH support planned'},
+              {icon:'💹', t:'RushTrade Fees', d:'Future fee perks for MRUSH holders'},
               {icon:'🎁', t:'Earn Rewards',   d:'Incentives for active players'},
-              {icon:'🔒', t:'Staking',        d:'Lock MRUSH for future perks'},
+              {icon:'🔒', t:'Staking',        d:'Planned staking utility'},
             ].map(u=>(
               <div key={u.t} className="p-3 rounded-xl border" style={{background:'rgba(249,115,22,.04)',borderColor:'rgba(249,115,22,.08)'}}>
                 <div className="flex items-center gap-2 mb-1.5">
@@ -742,7 +752,7 @@ export default function HomePage() {
             </div>
           </div>
           <div className="border-t pt-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-[10px]" style={{borderColor:'rgba(255,255,255,.04)',color:'rgba(71,85,105,1)'}}>
-            <span>© 2026 MemeRush · Built on Solana · Bags Ecosystem · Solo dev · No VC</span>
+            <span>© 2026 MemeRush · Built on Solana · Bags Ecosystem · Solo-built MVP</span>
             <span>⚠️ High risk. DYOR. Not financial advice.</span>
           </div>
         </div>
