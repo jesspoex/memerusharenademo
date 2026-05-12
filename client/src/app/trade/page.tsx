@@ -31,6 +31,9 @@ import { useWalletData } from './hooks/useWalletData';
 import { BattleCard } from './components/BattleCard';
 import { TradeStats } from './components/TradeStats';
 import { LiveActivity } from './components/LiveActivity';
+import { WinResultModal } from './components/WinResultModal';
+import { SocialViralPanel } from './components/SocialViralPanel';
+import { SoundFX } from './components/SoundFX';
 
 import { TokenLogo } from '../../hooks/useTokenMeta';
 import { resolveTokenMeta } from '../../lib/tokenResolver';
@@ -138,63 +141,152 @@ async function fetchLivePrice(symbol: string, fallback: number): Promise<number>
   } catch { return fallback; }
 }
 
-function drawLiveCanvas(canvas: HTMLCanvasElement, history: LivePoint[], activeToken: 'A' | 'B') {
+// Battle chart guardrails: this is a short PvP battle chart, not a full market candle.
+// Clamp extreme DexScreener/base-price mismatches so the UI never shows fake-looking +500% moves.
+const MAX_BATTLE_MOVE_PCT = 12;
+const clampBattlePct = (v: number) => {
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(-MAX_BATTLE_MOVE_PCT, Math.min(MAX_BATTLE_MOVE_PCT, v));
+};
+const safeRealMovePct = (live: number, start: number) => {
+  if (!Number.isFinite(live) || !Number.isFinite(start) || live <= 0 || start <= 0) return 0;
+  const pct = ((live - start) / start) * 100;
+  // If the source/base price is wildly different, ignore it and let the 1s battle engine drive the chart.
+  if (!Number.isFinite(pct) || Math.abs(pct) > 25) return 0;
+  return clampBattlePct(pct);
+};
+
+function drawLiveCanvas(
+  canvas: HTMLCanvasElement,
+  history: LivePoint[],
+  activeToken: 'A' | 'B',
+  symA = '', symB = '',
+) {
   const ctx = canvas.getContext('2d');
   if (!ctx || history.length < 2) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const W = canvas.clientWidth || 320;
-  const H = canvas.clientHeight || 160;
+  const W   = canvas.clientWidth  || 320;
+  const H   = canvas.clientHeight || 160;
   canvas.width = W * dpr; canvas.height = H * dpr;
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, W, H);
 
-  ctx.strokeStyle = 'rgba(255,255,255,.03)'; ctx.lineWidth = 0.5;
-  for (let i = 1; i <= 3; i++) { const y = (H/4)*i; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+  // ── Shared % scale: both tokens on same axis so they're directly comparable ─
+  const allVals = [...history.map(p => p.vA), ...history.map(p => p.vB), 0];
+  const rawMn   = Math.min(...allVals);
+  const rawMx   = Math.max(...allVals);
+  const pad     = Math.max((rawMx - rawMn) * 0.18, 0.8); // at least 0.8% padding
+  const lo      = rawMn - pad;
+  const hi      = rawMx + pad;
+  const span    = hi - lo || 1;
+  const toX     = (i: number) => (i / (history.length - 1)) * (W - 40) + 2;
+  const toY     = (v: number) => H - 16 - ((v - lo) / span) * (H - 28);
 
-  const drawSeries = (vals: number[], col: string, active: boolean) => {
+  // ── 0% baseline (battle start line) ──────────────────────────────────────────
+  const zeroY = toY(0);
+  ctx.setLineDash([4, 5]);
+  ctx.strokeStyle = 'rgba(255,255,255,.18)';
+  ctx.lineWidth   = 0.8;
+  ctx.beginPath(); ctx.moveTo(0, zeroY); ctx.lineTo(W, zeroY); ctx.stroke();
+  ctx.setLineDash([]);
+  // "Start" label at left
+  // Baseline "0%" label — right-aligned so it never overlaps left-side series lines
+  ctx.fillStyle    = 'rgba(255,255,255,.20)';
+  ctx.font         = 'bold 7px ui-monospace,monospace';
+  ctx.textAlign    = 'right';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('0%', W - 4, zeroY - 2);
+  // Watermark top-center — shorter on mobile so it doesn't overlap lines
+  ctx.fillStyle    = 'rgba(100,116,139,.13)';
+  ctx.font         = '7px ui-sans-serif,system-ui,sans-serif';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'top';
+  const wmTxt = W < 340 ? '% from start' : '% movement since battle start';
+  ctx.fillText(wmTxt, W / 2, 4);
+
+  // ── Y-axis % labels (right side) — skip if too close together on mobile ────
+  ctx.fillStyle  = 'rgba(100,116,139,.55)';
+  ctx.font       = '7px ui-monospace,monospace';
+  ctx.textAlign  = 'right';
+  ctx.textBaseline = 'middle';
+  const labelSteps = [rawMx, 0, rawMn].filter((v, i, a) => a.indexOf(v) === i);
+  let lastLabelY = -999;
+  const minGap = 16; // px minimum between Y labels
+  for (const v of labelSteps) {
+    const y = toY(v);
+    if (y > 10 && y < H - 10 && Math.abs(y - lastLabelY) >= minGap) {
+      ctx.fillText((v >= 0 ? '+' : '') + v.toFixed(1) + '%', W - 3, y);
+      lastLabelY = y;
+    }
+  }
+
+  // ── Draw a series ─────────────────────────────────────────────────────────────
+  const drawSeries = (vals: number[], col: string, active: boolean, label: string) => {
     if (vals.length < 2) return;
-    const mn = Math.min(...vals), mx = Math.max(...vals);
-    const rng = (mx - mn) || Math.abs(mn) * 0.01 || 0.0001;
-    const pad = rng * 0.15;
-    const lo = mn - pad, span = (mx + pad) - lo + pad;
-    const toX = (i: number) => (i / (vals.length - 1)) * (W - 2) + 1;
-    const toY = (v: number) => H - ((v - lo) / span) * (H - 10) - 5;
 
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, col + (active ? '44' : '14')); g.addColorStop(1, col + '00');
+    // Gradient fill (only above/below baseline)
+    const lastV = vals[vals.length - 1];
+    const g     = ctx.createLinearGradient(0, Math.min(zeroY, toY(lastV)), 0, Math.max(zeroY, toY(lastV)) + 20);
+    g.addColorStop(0, col + (active ? '38' : '10'));
+    g.addColorStop(1, col + '00');
     ctx.beginPath();
     vals.forEach((v, i) => i === 0 ? ctx.moveTo(toX(i), toY(v)) : ctx.lineTo(toX(i), toY(v)));
-    ctx.lineTo(toX(vals.length - 1), H); ctx.lineTo(0, H); ctx.closePath();
+    ctx.lineTo(toX(vals.length - 1), zeroY); ctx.lineTo(toX(0), zeroY); ctx.closePath();
     ctx.fillStyle = g; ctx.fill();
 
+    // Line
     ctx.beginPath();
-    ctx.strokeStyle = col; ctx.lineWidth = active ? 2.5 : 1.2;
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    if (active) { ctx.shadowColor = col; ctx.shadowBlur = 8; }
+    ctx.strokeStyle = col;
+    ctx.lineWidth   = active ? 2.2 : 1.4;
+    ctx.lineJoin    = 'round'; ctx.lineCap = 'round';
+    if (active) { ctx.shadowColor = col; ctx.shadowBlur = 7; }
     vals.forEach((v, i) => i === 0 ? ctx.moveTo(toX(i), toY(v)) : ctx.lineTo(toX(i), toY(v)));
     ctx.stroke(); ctx.shadowBlur = 0;
 
-    const lx = toX(vals.length - 1), ly = toY(vals[vals.length - 1]);
-    ctx.beginPath(); ctx.arc(lx, ly, active ? 4 : 2, 0, Math.PI * 2);
+    // End dot
+    const lx = toX(vals.length - 1);
+    const ly = toY(lastV);
+    ctx.beginPath(); ctx.arc(lx, ly, active ? 4 : 2.5, 0, Math.PI * 2);
     ctx.fillStyle = col;
-    if (active) { ctx.shadowColor = col; ctx.shadowBlur = 12; }
+    if (active) { ctx.shadowColor = col; ctx.shadowBlur = 10; }
     ctx.fill(); ctx.shadowBlur = 0;
 
-    if (active) {
-      ctx.setLineDash([3, 4]); ctx.strokeStyle = col + '40'; ctx.lineWidth = 0.5;
-      ctx.beginPath(); ctx.moveTo(0, ly); ctx.lineTo(W, ly); ctx.stroke();
-      ctx.setLineDash([]);
+    // End label: symbol + % — drawn left of line end on mobile to avoid right-edge clip
+    if (label) {
+      const sign  = lastV >= 0 ? '+' : '';
+      // On narrow canvas skip % to save space; show symbol only for inactive
+      const isMobile = W < 340;
+      const txt = active
+        ? `${label} ${sign}${lastV.toFixed(isMobile ? 1 : 2)}%`
+        : (isMobile ? label : `${label} ${sign}${lastV.toFixed(1)}%`);
+      const fontSize = isMobile ? 8 : 9;
+      ctx.font       = `${active ? 'bold ' : ''}${fontSize}px ui-sans-serif,system-ui,sans-serif`;
+      ctx.fillStyle  = active ? col : col + 'aa';
+      ctx.textAlign  = 'right';   // draw right-aligned FROM the dot, avoids right-edge clip
+      ctx.textBaseline = 'middle';
+      const tx = Math.max(lx - 5, 30); // right edge of text = just left of dot
+      // Vertical nudge: if inactive label would overlap active, shift up/down 11px
+      const lyAdjusted = ly;
+      ctx.fillText(txt, tx, lyAdjusted);
     }
   };
 
-  const vA = history.map(p => p.vA), vB = history.map(p => p.vB);
-  if (activeToken === 'A') { drawSeries(vB, '#38bdf8', false); drawSeries(vA, '#f97316', true); }
-  else                     { drawSeries(vA, '#f97316', false); drawSeries(vB, '#38bdf8', true); }
+  const vA = history.map(p => p.vA);
+  const vB = history.map(p => p.vB);
+  // Draw inactive first, active on top
+  if (activeToken === 'A') {
+    drawSeries(vB, '#38bdf8', false, symB);
+    drawSeries(vA, '#f97316', true,  symA);
+  } else {
+    drawSeries(vA, '#f97316', false, symA);
+    drawSeries(vB, '#38bdf8', true,  symB);
+  }
 }
 
 const BattleChartSection = React.memo(function BattleChartSection({
   tokenASymbol, tokenBSymbol, tokenALogoUrl, tokenBLogoUrl,
   tokenAPrice = 0, tokenBPrice = 0, tokenAChange24h = 0, tokenBChange24h = 0, isLive = false,
+  battleId,
   onPriceUpdate,
 }: {
   tokenASymbol: string; tokenBSymbol: string;
@@ -202,9 +294,12 @@ const BattleChartSection = React.memo(function BattleChartSection({
   tokenAPrice?: number; tokenBPrice?: number;
   tokenAChange24h?: number; tokenBChange24h?: number;
   isLive?: boolean;
+  battleId?: string;
   onPriceUpdate?: (pctA: number, pctB: number, priceA: number, priceB: number) => void;
 }) {
-  const bKey = `${tokenASymbol}_${tokenBSymbol}`;
+  // IMPORTANT: history must be keyed per battle, not only token pair.
+  // If token pair is reused, old chart history can make modal % different from card %.
+  const bKey = battleId || `${tokenASymbol}_${tokenBSymbol}`;
   const [activeToken, setActiveToken] = React.useState<'A'|'B'>('A');
   const [pctA, setPctA]   = React.useState(tokenAChange24h);
   const [pctB, setPctB]   = React.useState(tokenBChange24h);
@@ -215,22 +310,48 @@ const BattleChartSection = React.memo(function BattleChartSection({
   const realPA = React.useRef(tokenAPrice || 1e-9);
   const realPB = React.useRef(tokenBPrice || 1e-9);
 
-  // Seed history once per battle key
+  // Seed history once per battle key.
+  // vA/vB are % movement from battle start (0 = start line).
+  // Small simulated pre-history so chart is not flat on open.
   React.useMemo(() => {
     if (_battleHistory.has(bKey)) return;
-    const n = 80;
-    const sA = (tokenAPrice || 1e-9) / (1 + tokenAChange24h / 100);
-    const sB = (tokenBPrice || 1e-9) / (1 + tokenBChange24h / 100);
-    const dA = (tokenAChange24h / 100) / n, dB = (tokenBChange24h / 100) / n;
-    let cA = sA, cB = sB;
+
+    // Seed chart from the SAME percentage used by the outer battle card.
+    // This prevents: red outside → green inside, or fake winner display.
+    const n = 60;
+    const targetA = clampBattlePct(Number.isFinite(tokenAChange24h) ? tokenAChange24h : 0);
+    const targetB = clampBattlePct(Number.isFinite(tokenBChange24h) ? tokenBChange24h : 0);
     const pts: LivePoint[] = [];
+
     for (let i = 0; i < n; i++) {
-      cA = Math.max(cA * (1 + dA + (Math.random() - 0.485) * 0.004), cA * 0.001);
-      cB = Math.max(cB * (1 + dB + (Math.random() - 0.485) * 0.004), cB * 0.001);
-      pts.push({ t: Date.now() - (n - i) * 1000, vA: cA, vB: cB });
+      const k = i / (n - 1);
+      const noiseA = (Math.random() - 0.5) * 0.035;
+      const noiseB = (Math.random() - 0.5) * 0.035;
+      pts.push({
+        t: Date.now() - (n - i) * 1000,
+        vA: clampBattlePct(parseFloat((targetA * k + noiseA).toFixed(5))),
+        vB: clampBattlePct(parseFloat((targetB * k + noiseB).toFixed(5))),
+      });
     }
+
+    // Last point must exactly match card values on modal open.
+    pts[pts.length - 1] = { t: Date.now(), vA: targetA, vB: targetB };
     _battleHistory.set(bKey, pts);
-  }, [bKey]);
+  }, [bKey, tokenAChange24h, tokenBChange24h]);
+
+  // When a new battle opens, sync displayed pct immediately from the battle card source.
+  React.useEffect(() => {
+    const a = clampBattlePct(Number.isFinite(tokenAChange24h) ? tokenAChange24h : 0);
+    const b = clampBattlePct(Number.isFinite(tokenBChange24h) ? tokenBChange24h : 0);
+    setPctA(a);
+    setPctB(b);
+    const hist = _battleHistory.get(bKey);
+    if (hist?.length) {
+      hist[hist.length - 1] = { t: Date.now(), vA: a, vB: b };
+      _battleHistory.set(bKey, hist);
+      if (canvasRef.current) drawLiveCanvas(canvasRef.current, hist, activeToken, tokenASymbol, tokenBSymbol);
+    }
+  }, [bKey, activeToken, tokenASymbol, tokenBSymbol, tokenAChange24h, tokenBChange24h]);
 
   // Fetch real prices
   React.useEffect(() => {
@@ -246,23 +367,29 @@ const BattleChartSection = React.memo(function BattleChartSection({
     if (!isLive) return;
     const tick = setInterval(() => {
       const hist = _battleHistory.get(bKey) ?? [];
-      const last = hist[hist.length-1] ?? { vA: realPA.current, vB: realPB.current };
-      const vol = 0.003;
-      const biasA = tokenAChange24h > 0 ? 0.0003 : tokenAChange24h < 0 ? -0.0003 : 0;
-      const biasB = tokenBChange24h > 0 ? 0.0003 : tokenBChange24h < 0 ? -0.0003 : 0;
-      let nA = Math.max(last.vA * (1 + biasA + (Math.random()-0.49)*vol), last.vA*0.001);
-      let nB = Math.max(last.vB * (1 + biasB + (Math.random()-0.49)*vol), last.vB*0.001);
-      if (hist.length % 30 === 0) { nA = realPA.current; nB = realPB.current; }
-      const updated = [...hist.slice(-299), { t: Date.now(), vA: nA, vB: nB }];
+      const last = hist[hist.length - 1] ?? { vA: 0, vB: 0 };
+      // Soft bias toward real price direction; small volatility for smooth UX
+      const vol   = 0.0012; // tight movement — realistic battle feel
+      const biasA = tokenAChange24h > 0 ? 0.0004 : tokenAChange24h < 0 ? -0.0004 : 0;
+      const biasB = tokenBChange24h > 0 ? 0.0004 : tokenBChange24h < 0 ? -0.0004 : 0;
+      // Every 30 ticks soft-pin toward real DexScreener price direction
+      const pinBias = hist.length % 30 === 0 && realPA.current > 0 ? (() => {
+        const realPctA = safeRealMovePct(realPA.current, tokenAPrice);
+        const realPctB = safeRealMovePct(realPB.current, tokenBPrice);
+        return { dA: (realPctA - last.vA) * 0.05, dB: (realPctB - last.vB) * 0.05 };
+      })() : { dA: 0, dB: 0 };
+      const nA = clampBattlePct(last.vA + biasA * 100 + (Math.random() - 0.49) * vol * 100 + pinBias.dA);
+      const nB = clampBattlePct(last.vB + biasB * 100 + (Math.random() - 0.49) * vol * 100 + pinBias.dB);
+      const updated = [...hist.slice(-359), { t: Date.now(), vA: nA, vB: nB }];
       _battleHistory.set(bKey, updated);
-      const init = updated[0];
-      const newPctA = init.vA > 0 ? ((nA - init.vA) / init.vA) * 100 : 0;
-      const newPctB = init.vB > 0 ? ((nB - init.vB) / init.vB) * 100 : 0;
-      setPctA(newPctA); setPctB(newPctB);
-      setPriceA(nA); setPriceB(nB);
-      onPriceUpdate?.(newPctA, newPctB, nA, nB);
+      // vA/vB ARE already the pct from start — no re-derivation needed
+      setPctA(nA); setPctB(nB);
+      // Keep display prices updated from real ref
+      if (realPA.current > 0) setPriceA(realPA.current);
+      if (realPB.current > 0) setPriceB(realPB.current);
+      onPriceUpdate?.(nA, nB, realPA.current, realPB.current);
       setFlash(true); setTimeout(() => setFlash(false), 350);
-      if (canvasRef.current) drawLiveCanvas(canvasRef.current, updated, activeToken);
+      if (canvasRef.current) drawLiveCanvas(canvasRef.current, updated, activeToken, tokenASymbol, tokenBSymbol);
     }, 1000);
     const refetch = setInterval(async () => {
       const [pA, pB] = await Promise.all([fetchLivePrice(tokenASymbol, realPA.current), fetchLivePrice(tokenBSymbol, realPB.current)]);
@@ -274,20 +401,23 @@ const BattleChartSection = React.memo(function BattleChartSection({
 
   React.useEffect(() => {
     const hist = _battleHistory.get(bKey) ?? [];
-    if (canvasRef.current && hist.length > 1) drawLiveCanvas(canvasRef.current, hist, activeToken);
+    if (canvasRef.current && hist.length > 1) drawLiveCanvas(canvasRef.current, hist, activeToken, tokenASymbol, tokenBSymbol);
   }, [bKey, activeToken]);
 
   React.useEffect(() => {
     if (!canvasRef.current) return;
     const obs = new ResizeObserver(() => {
       const hist = _battleHistory.get(bKey) ?? [];
-      if (canvasRef.current && hist.length > 1) drawLiveCanvas(canvasRef.current, hist, activeToken);
+      if (canvasRef.current && hist.length > 1) drawLiveCanvas(canvasRef.current, hist, activeToken, tokenASymbol, tokenBSymbol);
     });
     obs.observe(canvasRef.current); return () => obs.disconnect();
   }, [bKey, activeToken]);
 
-  const ap = activeToken==='A' ? priceA : priceB;
-  const aPct = activeToken==='A' ? pctA : pctB;
+  // Real market price: DexScreener if fetched, else coingecko from props
+  const ap    = activeToken==='A'
+    ? (realPA.current > 0 ? realPA.current : (tokenAPrice||0))
+    : (realPB.current > 0 ? realPB.current : (tokenBPrice||0));
+  const aPct  = activeToken==='A' ? pctA : pctB;
   const aLogo = activeToken==='A' ? tokenALogoUrl : tokenBLogoUrl;
   const aSym  = activeToken==='A' ? tokenASymbol  : tokenBSymbol;
   const pos = aPct >= 0;
@@ -298,15 +428,19 @@ const BattleChartSection = React.memo(function BattleChartSection({
       <div className="px-4 pt-3 pb-0">
         <div className="flex items-start justify-between mb-1" style={{minHeight:52}}>
           <div className="flex items-center gap-2.5 min-w-0">
-            <TokenLogo symbol={aSym} logoUrl={aLogo} size={32} className="border border-white/10 shrink-0"/>
+            <SafeTokenImg src={aLogo||LOGO_REGISTRY[aSym.toUpperCase()]||''} sym={aSym} size={32} className="border border-white/10 shrink-0"/>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <p className="text-[10px] font-black text-slate-500 leading-none tracking-[.12em] uppercase">{aSym}</p>
                 {isLive&&<span className="relative flex w-1.5 h-1.5 shrink-0"><span className="absolute inline-flex w-full h-full rounded-full bg-orange-400 opacity-60 animate-ping"/><span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-orange-400"/></span>}
               </div>
               <p className="text-xl font-black leading-tight tabular-nums mt-0.5 transition-colors duration-300"
-                style={{color: flash?(pos?'#4ade80':'#fb923c'):'#ffffff'}}>{fmtPr(ap)}</p>
-              <div style={{height:13}}/>
+                style={{color: flash?(pos?'#4ade80':'#fb923c'):(pos?'#22c55e':'#f87171')}}>
+                {pos?'+':''}{aPct.toFixed(3)}%
+              </p>
+              <p className="text-[9px] text-slate-600 tabular-nums leading-none mt-0.5">
+                {fmtPr(ap)} <span className="text-slate-700">· market price</span>
+              </p>
             </div>
           </div>
           <span className="text-sm font-black px-2.5 py-1 rounded-xl tabular-nums shrink-0 mt-0.5"
@@ -326,23 +460,229 @@ const BattleChartSection = React.memo(function BattleChartSection({
           {isLive&&<div className="flex items-center gap-1 text-[9px] text-orange-400 font-black tracking-widest"><span className="w-1 h-1 rounded-full bg-orange-400 animate-pulse inline-block"/>LIVE · 1s</div>}
         </div>
       </div>
-      <div className="px-1 pb-1">
-        <canvas ref={canvasRef} style={{display:'block',width:'100%',height:176}} className="rounded-xl"/>
+      {/* subtitle: Battle movement since start + LIVE indicator */}
+      <div className="px-4 pb-1.5 flex items-center justify-between">
+        <span className="text-[9px] text-slate-600 font-bold tracking-wide">⚔️ Battle movement since start</span>
+        {isLive
+          ? <div className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse inline-block"/>
+              <span className="text-[9px] text-orange-400 font-black tracking-widest">LIVE · 1s</span>
+            </div>
+          : <span className="text-[9px] text-slate-700 font-bold">ENDED</span>
+        }
       </div>
-      <div className="px-4 pb-3 flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <TokenLogo symbol={tokenASymbol} logoUrl={tokenALogoUrl} size={16}/>
-          <span className="text-[11px] font-black tabular-nums" style={{color:pctA>=0?'#f97316':'#f87171'}}>{tokenASymbol} {pctA>=0?'+':''}{pctA.toFixed(2)}%</span>
+
+      {/* Canvas chart */}
+      <div className="px-1 pb-1">
+        <div style={{position:'relative'}}>
+          <canvas ref={canvasRef} style={{display:'block',width:'100%',height:188}} className="rounded-xl"/>
         </div>
-        <span className="text-[9px] text-slate-700 font-mono">VS</span>
-        <div className="flex items-center gap-1.5">
-          <span className="text-[11px] font-black tabular-nums" style={{color:pctB>=0?'#38bdf8':'#f87171'}}>{pctB>=0?'+':''}{pctB.toFixed(2)}% {tokenBSymbol}</span>
-          <TokenLogo symbol={tokenBSymbol} logoUrl={tokenBLogoUrl} size={16}/>
+      </div>
+
+      {/* Battle legend: both tokens, pct, WIN indicator, Δ bar */}
+      <div className="px-3 pb-3">
+        <div className="rounded-xl border border-white/[.06] overflow-hidden" style={{background:'rgba(10,8,4,.8)'}}>
+          <div className="grid grid-cols-2 divide-x divide-white/[.06]">
+            {([
+              {sym:tokenASymbol,logo:tokenALogoUrl,pct:pctA,col:'#f97316',side:'A'} as const,
+              {sym:tokenBSymbol,logo:tokenBLogoUrl,pct:pctB,col:'#38bdf8',side:'B'} as const,
+            ]).map(tk => {
+              const leading = tk.side==='A' ? pctA>=pctB : pctB>pctA;
+              const pos2    = tk.pct >= 0;
+              return (
+                <div key={tk.side} className="flex flex-col items-center py-2 px-2 gap-0.5">
+                  <div className="flex items-center gap-1 w-full justify-center">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{background:tk.col}}/>
+                    <SafeTokenImg src={tk.logo||LOGO_REGISTRY[tk.sym.toUpperCase()]||''} sym={tk.sym} size={14}/>
+                    <span className="text-[10px] font-black text-white">{tk.sym}</span>
+                    {leading&&isLive&&(
+                      <span className="text-[7px] font-black px-1 rounded-full leading-4"
+                        style={{background:'rgba(249,115,22,.2)',color:'#f97316',border:'1px solid rgba(249,115,22,.3)'}}>
+                        WIN▲
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[14px] font-black tabular-nums leading-tight"
+                    style={{color:pos2?tk.col:'#f87171'}}>
+                    {pos2?'+':''}{tk.pct.toFixed(3)}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {/* Relative Δ bar */}
+          {(()=>{
+            const diff=pctA-pctB;
+            const abs=Math.abs(diff);
+            const aHead=diff>=0;
+            const w=Math.min(abs*10,46);
+            return(
+              <div className="flex items-center px-3 pb-2 gap-2">
+                <div className="flex-1 h-1 rounded-full overflow-hidden flex justify-end" style={{background:'rgba(255,255,255,.05)'}}>
+                  <div style={{width:`${aHead?w:0}%`,background:'#f97316',transition:'width .5s'}} className="h-full rounded-full"/>
+                </div>
+                <span className="text-[8px] text-slate-600 font-mono shrink-0 tabular-nums">Δ{abs.toFixed(2)}%</span>
+                <div className="flex-1 h-1 rounded-full overflow-hidden" style={{background:'rgba(255,255,255,.05)'}}>
+                  <div style={{width:`${!aHead?w:0}%`,background:'#38bdf8',transition:'width .5s'}} className="h-full rounded-full"/>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>
   );
 });
+
+// ── Module-level logo cache: symbol → logoUrl ────────────────────────────────
+// Persists across renders. Populated whenever a logo is successfully resolved.
+// ── Logo cache system ─────────────────────────────────────────────────────────
+// Persistent module-level cache: symbol.toUpperCase() → url
+// Never stores avatar URLs — only real logos, so avatar is always a fallback
+const _logoCache = new Map<string, string>();
+const _logoPending = new Set<string>(); // symbols being fetched right now
+
+// Static registry — zero network, instant
+// ── Token logo registry — tiered fallback CDN sources ────────────────────────
+// PRIMARY: coingecko (proven stable, widely used)
+// BACKUP: dexscreener CDN (fast, Solana-native)
+// FINAL:  SVG data URI avatar (zero network, always renders)
+const LOGO_REGISTRY: Record<string, string> = {
+  SOL:    'https://assets.coingecko.com/coins/images/4128/large/solana.png',
+  BONK:   'https://assets.coingecko.com/coins/images/28600/large/bonk.jpg',
+  WIF:    'https://assets.coingecko.com/coins/images/33567/large/dogwifhat.jpg',
+  POPCAT: 'https://assets.coingecko.com/coins/images/33908/large/popcat.png',
+  BOME:   'https://assets.coingecko.com/coins/images/35215/large/bome.png',
+  MYRO:   'https://assets.coingecko.com/coins/images/33427/large/myro.png',
+  PEPE:   'https://assets.coingecko.com/coins/images/29850/large/pepe-token.jpeg',
+  MRUSH:  '/mrush-logo.png',
+  STONK:  '/mrush-logo.png',
+  AUDD:   'https://assets.coingecko.com/coins/images/31273/large/AUDD.png',
+};
+
+// Pre-populate cache at module load — gl() returns real URL on first render, no async needed
+// This runs once when the JS module is evaluated, before any React renders
+(function preFillCache() {
+  const reg: Record<string,string> = {
+    SOL:    'https://assets.coingecko.com/coins/images/4128/large/solana.png',
+    BONK:   'https://assets.coingecko.com/coins/images/28600/large/bonk.jpg',
+    WIF:    'https://assets.coingecko.com/coins/images/33567/large/dogwifhat.jpg',
+    POPCAT: 'https://assets.coingecko.com/coins/images/33908/large/popcat.png',
+    BOME:   'https://assets.coingecko.com/coins/images/35215/large/bome.png',
+    MYRO:   'https://assets.coingecko.com/coins/images/33427/large/myro.png',
+    PEPE:   'https://assets.coingecko.com/coins/images/29850/large/pepe-token.jpeg',
+    MRUSH:  '/mrush-logo.png',
+    STONK:  '/mrush-logo.png',
+    AUDD:   'https://assets.coingecko.com/coins/images/31273/large/AUDD.png',
+  };
+  Object.entries(reg).forEach(([k,v]) => _logoCache.set(k, v));
+})();
+
+// DexScreener CDN backup (fast Solana-native CDN, used as stage-1 onError)
+const LOGO_BACKUP: Record<string, string> = {
+  SOL:    'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
+  BONK:   'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263/logo.png',
+  WIF:    'https://dd.dexscreener.com/ds-data/tokens/solana/EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm.png?size=lg&key=2f8e8c',
+  POPCAT: 'https://dd.dexscreener.com/ds-data/tokens/solana/7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr.png?size=lg&key=2f8e8c',
+  BOME:   'https://dd.dexscreener.com/ds-data/tokens/solana/ukHH6c7mMyiWCf1b9pnWe25TSpkDDt3H5pQZgZ74J82.png?size=lg&key=2f8e8c',
+  MYRO:   'https://dd.dexscreener.com/ds-data/tokens/solana/HhJpBhRRn4g56VsyLuT8DL5Bv31HkXqsrahTTUCZeZg4.png?size=lg&key=2f8e8c',
+  PEPE:   'https://assets.coingecko.com/coins/images/29850/small/pepe-token.jpeg',
+  MRUSH:  '/mrush-logo.png',
+  STONK:  '/mrush-logo.png',
+};
+
+// Avatar fallback — SVG data URI, zero network, renders instantly always
+function mkAvatar(sym: string): string {
+  const label = (sym || '?').slice(0, 3).toUpperCase();
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'><circle cx='32' cy='32' r='32' fill='%23ea580c'/><text x='32' y='38' text-anchor='middle' font-family='system-ui,sans-serif' font-weight='bold' font-size='${label.length > 2 ? '18' : '22'}' fill='white'>${label}</text></svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+// Async DexScreener logo fetch — updates cache in background, triggers re-render via callback
+function fetchLogoBg(sym: string, onDone: (url: string) => void): void {
+  const key = sym.toUpperCase();
+  if (_logoPending.has(key) || _logoCache.has(key)) return;
+  _logoPending.add(key);
+  fetch(
+    `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(sym + ' solana')}`,
+    { cache: 'no-store', signal: AbortSignal.timeout(6_000) },
+  )
+    .then(r => r.ok ? r.json() : null)
+    .then((d: { pairs?: Array<{ chainId: string; baseToken: { symbol: string }; quoteToken: { symbol: string }; info?: { imageUrl?: string }; liquidity?: { usd?: number }; volume?: { h24?: number } }> } | null) => {
+      if (!d?.pairs) return;
+      const best = d.pairs
+        .filter(p => p.chainId === 'solana' && p.baseToken.symbol.toUpperCase() === key)
+        .sort((a, b) =>
+          ((b.liquidity?.usd ?? 0) * 0.6 + (b.volume?.h24 ?? 0) * 0.3 + (b.quoteToken.symbol === 'SOL' ? 40000 : 0)) -
+          ((a.liquidity?.usd ?? 0) * 0.6 + (a.volume?.h24 ?? 0) * 0.3 + (a.quoteToken.symbol === 'SOL' ? 40000 : 0))
+        )[0];
+      const url = best?.info?.imageUrl;
+      if (url && url.startsWith('http')) {
+        _logoCache.set(key, url);
+        onDone(url);
+      }
+    })
+    .catch(() => {})
+    .finally(() => _logoPending.delete(key));
+}
+
+// Resolve best logo synchronously; returns real URL or avatar
+function resolveLogoUrl(sym: string, tokens: { symbol: string; logoUrl?: string }[]): string {
+  const key = sym.toUpperCase();
+  // 1. Cache hit (real logo)
+  const cached = _logoCache.get(key);
+  if (cached) return cached;
+  // 2. tokens[] (custom tokens fetched in-session)
+  const tok = tokens.find(t => t.symbol.toUpperCase() === key);
+  if (tok?.logoUrl && tok.logoUrl.startsWith('http') && !tok.logoUrl.includes('ui-avatars')) {
+    _logoCache.set(key, tok.logoUrl);
+    return tok.logoUrl;
+  }
+  // 3. Static registry
+  if (LOGO_REGISTRY[key]) {
+    _logoCache.set(key, LOGO_REGISTRY[key]);
+    return LOGO_REGISTRY[key];
+  }
+  // 4. Avatar — real logo may arrive async via fetchLogoBg
+  return mkAvatar(sym);
+}
+
+// ── SafeTokenImg: img with 3-stage fallback (logo → dexscreener → avatar) ──────
+// Use for any token image that might be missing. Never shows broken icon.
+function SafeTokenImg({
+  src: initialSrc, sym, size = 40, className = '', style,
+}: {
+  src: string; sym: string; size?: number; className?: string; style?: React.CSSProperties;
+}) {
+  const [src, setSrc] = React.useState(initialSrc || mkAvatar(sym));
+  const stage = React.useRef(0);
+  // Update src when prop changes (e.g. async logo arrives)
+  React.useEffect(() => {
+    if (initialSrc && initialSrc !== src) { stage.current = 0; setSrc(initialSrc); }
+  }, [initialSrc]);
+  const onError = React.useCallback(() => {
+    stage.current += 1;
+    const key = sym.toUpperCase();
+    if (stage.current === 1) {
+      // Stage 1: DexScreener CDN backup for known tokens
+      const backup = LOGO_BACKUP[key];
+      if (backup) { setSrc(backup); return; }
+      // Unknown symbol: avoid broken network loops; fall back instantly to initials.
+      setSrc(mkAvatar(sym));
+    } else {
+      // Stage 2: SVG data URI — zero network, renders instantly always
+      setSrc(mkAvatar(sym));
+    }
+  }, [sym]);
+  return (
+    <img
+      src={src} alt={sym} width={size} height={size}
+      onError={onError} loading="lazy" decoding="async"
+      className={`rounded-full object-cover ${className}`}
+      style={{ width: size, height: size, minWidth: size, minHeight: size, ...style }}
+    />
+  );
+}
 
 // ── Liquidity status type (module-level — not inside component) ──────────────
 type LiqStatus = 'safe' | 'low' | 'very_low' | 'no_liquidity';
@@ -370,6 +710,8 @@ function TradeContent() {
   const [livePctB,   setLivePctB]   = useState(0);
   const [livePriceA, setLivePriceA] = useState(0);
   const [livePriceB, setLivePriceB] = useState(0);
+  const [frozenPctA, setFrozenPctA] = useState<number|null>(null);
+  const [frozenPctB, setFrozenPctB] = useState<number|null>(null);
   const [paymentToken,     setPaymentToken]     = useState<PaymentToken>('SOL');
   const [joinAmount,       setJoinAmount]       = useState('0.1');
   const [isJoiningBattle,  setIsJoiningBattle]  = useState(false);
@@ -401,6 +743,7 @@ function TradeContent() {
   const [notif,            setNotif]            = useState<string|null>(null);
   const [showWinToast,     setShowWinToast]     = useState(false);
   const [winAmount,        setWinAmount]        = useState(0);
+  const [winResult,        setWinResult]        = useState<{ amount:number; battle:string; winnerToken:string; pickedToken:string|null; txHash?:string; isReal:boolean } | null>(null);
 
   const showErr = (m: string) => { setErrMsg(m);  setTimeout(()=>setErrMsg(null), 5000); };
   const showOk  = (m: string) => { setOkMsg(m);   setTimeout(()=>setOkMsg(null),  5000); };
@@ -422,8 +765,32 @@ function TradeContent() {
     userProfile, saveProfile,
     referralCount, referralEarnings,
     shareRewardPending, setShareRewardPending,
-    tier, glFn: gl, calcJoinFee,
+    tier, glFn: _glFromHook, calcJoinFee,
   } = useWalletData(publicKey, connected, dbStats);
+
+  // Force-update counter — increments when an async logo fetch completes
+  const [_logoVer, _setLogoVer] = useState(0);
+
+  // gl(): resolve logo synchronously; if avatar returned, kick off async DexScreener fetch
+  const gl = useCallback((sym: string): string => {
+    // 1. Try hook's glFn first (may have token metadata from wallet data)
+    const hookLogo = _glFromHook(sym);
+    if (hookLogo && hookLogo.startsWith('http') && !hookLogo.includes('ui-avatars')) {
+      _logoCache.set(sym.toUpperCase(), hookLogo);
+      return hookLogo;
+    }
+    // 2. Sync resolution (cache → tokens[] → registry → avatar)
+    const resolved = resolveLogoUrl(sym, tokens);
+    // 3. If still avatar, trigger background fetch to upgrade it
+    if (resolved.includes('ui-avatars')) {
+      fetchLogoBg(sym, (url) => {
+        _logoCache.set(sym.toUpperCase(), url);
+        _setLogoVer(v => v + 1); // re-render once logo arrives
+      });
+    }
+    return resolved;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tokens, _glFromHook, _logoVer]);
 
   const [auddBal, setAuddBal] = useState<number | null>(null);
 
@@ -435,10 +802,40 @@ function TradeContent() {
     paid:        dbStats?.paid_sol ?? 0,
   }), [dbStats]);
 
-  // Live battle participants = sum of players across all live battles
-  const livePlayers = useMemo(() =>
-    battles.filter(b => b.status === 'live').reduce((s, b) => s + (b.players ?? 0), 0),
+  // Populate logo cache whenever tokens state updates
+  useEffect(() => {
+    tokens.forEach(t => {
+      if (t.logoUrl && t.logoUrl.startsWith('http') && !t.logoUrl.includes('ui-avatars')) {
+        _logoCache.set(t.symbol.toUpperCase(), t.logoUrl);
+      }
+    });
+  }, [tokens]);
+
+  // Proactively prefetch logos for all battle token pairs not in registry/cache
+  useEffect(() => {
+    const syms = new Set<string>();
+    battles.forEach(b => { syms.add(b.tokenA); syms.add(b.tokenB); });
+    syms.forEach(sym => {
+      const key = sym.toUpperCase();
+      if (!_logoCache.has(key) && !LOGO_REGISTRY[key]) {
+        fetchLogoBg(sym, (url) => {
+          _logoCache.set(key, url);
+          _setLogoVer(v => v + 1);
+        });
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [battles]);
+
+  // Live battles used by /trade and homepage should feel identical: hide expired 00:00 cards.
+  const activeLiveBattles = useMemo(() =>
+    battles.filter(b => b.status === 'live' && (!b.endTime || b.endTime > Date.now())),
   [battles]);
+
+  // Live battle participants = sum of players across visible live battles.
+  const livePlayers = useMemo(() =>
+    activeLiveBattles.reduce((s, b) => s + (b.players ?? 0), 0),
+  [activeLiveBattles]);
 
   useEffect(() => {
     if (!publicKey || !connected || !connRef.current) { setAuddBal(null); return; }
@@ -488,15 +885,23 @@ function TradeContent() {
   // ── Battle ended → payout detection ────────────────────────────────────────
   useEffect(() => {
     if (!activeBattle || activeBattle.status !== 'ended' || activeBattle.payoutSignature) return;
-    // Use last live pct snapshot if available, else fall back to chartA/B
-    const aL = livePctA !== 0 ? livePctA : activeBattle.chartA[activeBattle.chartA.length-1] ?? 0;
-    const bL = livePctB !== 0 ? livePctB : activeBattle.chartB[activeBattle.chartB.length-1] ?? 0;
+    // Winner = highest % from battle start (frozen snapshot or last live tick)
+    const aL = frozenPctA !== null ? frozenPctA : livePctA;
+    const bL = frozenPctB !== null ? frozenPctB : livePctB;
     const winner = activeBattle.winner ?? (aL >= bL ? activeBattle.tokenA : activeBattle.tokenB);
     const pickedWin = pickedSide==='A' ? activeBattle.tokenA : pickedSide==='B' ? activeBattle.tokenB : null;
     const userWon = pickedSide !== null && winner === pickedWin;
     const isRealBattle = (activeBattle.mode ?? 'arena') === 'real';
     if (userWon && isRealBattle) {
-      setWinAmount(activeBattle.prizePool); setShowWinToast(true);
+      setWinAmount(activeBattle.prizePool);
+      setShowWinToast(true);
+      setWinResult({
+        amount: activeBattle.prizePool,
+        battle: `${activeBattle.tokenA} vs ${activeBattle.tokenB}`,
+        winnerToken: winner,
+        pickedToken: pickedWin,
+        isReal: isRealBattle,
+      });
       setTimeout(() => setShowWinToast(false), 8000);
       saveProfile({ wins:(userProfile?.wins??0)+1, totalPnL:(userProfile?.totalPnL??0)+activeBattle.prizePool });
     } else if (pickedSide && isRealBattle) {
@@ -512,7 +917,13 @@ function TradeContent() {
       try {
         const res = await fetch('/api/payout', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ battleId: activeBattle.id }) });
         const d = await res.json() as { success?:boolean; alreadyPaid?:boolean; txHash?:string; payoutSol?:number };
-        if ((d.success || d.alreadyPaid) && d.txHash) { sig = d.txHash; if (userWon) notify(`🏆 Payout! ${sf(d.payoutSol??activeBattle.prizePool,4)} SOL → ${sig.slice(0,8)}…`); }
+        if ((d.success || d.alreadyPaid) && d.txHash) {
+          sig = d.txHash;
+          if (userWon) {
+            setWinResult(prev => prev ? { ...prev, amount: d.payoutSol ?? prev.amount, txHash: sig } : prev);
+            notify(`🏆 Payout! ${sf(d.payoutSol??activeBattle.prizePool,4)} SOL → ${sig.slice(0,8)}…`);
+          }
+        }
       } catch {}
       setActiveBattle(prev => prev ? {...prev, status:'paid' as const, payoutSignature:sig} : prev);
     }, 5000);
@@ -526,13 +937,13 @@ function TradeContent() {
       <div className="flex items-center justify-between pt-1 pb-0.5">
         <div>
           <h1 className="text-base font-black text-white leading-none tracking-tight">Battle Arena</h1>
-          <p className="text-slate-600 text-[10px] mt-0.5 font-mono">Solana Mainnet · Realtime</p>
+          <p className="text-slate-600 text-[10px] mt-0.5 font-mono">Solana Hybrid Mainnet · Realtime</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1.5 px-2 py-1 rounded-full text-[9px] font-black" style={{background:'rgba(16,185,129,.08)',border:'1px solid rgba(16,185,129,.2)',color:'#4ade80'}}>
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"/>LIVE
           </span>
-          <button onClick={()=>setShowCreateModal(true)} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black text-white active:scale-95 transition-all min-h-[40px]" style={{background:'linear-gradient(135deg,#ea580c,#f97316)',boxShadow:'0 0 14px rgba(249,115,22,.4)'}}>
+          <button onClick={()=>setShowCreateModal(true)} className="mr-create-glow flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black text-white active:scale-95 transition-all min-h-[40px]" style={{background:'linear-gradient(135deg,#ea580c,#f97316)',boxShadow:'0 0 14px rgba(249,115,22,.4)'}}>
             ⚔️ Create
           </button>
         </div>
@@ -542,11 +953,21 @@ function TradeContent() {
         <div className="flex items-center gap-3 px-3 py-2 overflow-x-auto scrollbar-none">
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="relative flex w-2 h-2"><span className="absolute inline-flex w-full h-full rounded-full bg-orange-400 opacity-50 animate-ping"/><span className="relative inline-flex w-2 h-2 rounded-full bg-orange-400"/></span>
-            <span className="text-[9px] font-black text-orange-400 tracking-widest uppercase">{realtimeOk?'LIVE':'SYNC'}</span>
+            <span className="text-[9px] font-black text-orange-400 tracking-widest uppercase">{realtimeOk?'LIVE':'DB SYNC'}</span>
           </div>
-          {[{v:`${battles.filter(b=>b.status==='live').length} Battles`,c:'#a3e635'},{v:`${sf(stats.vol,2)} SOL`,c:'#facc15'},{v:`${livePlayers} Live Players`,c:'#67e8f9'},{v:'Mainnet',c:'#a78bfa'}].map((s,i)=>(
+          {[{v:`${activeLiveBattles.length} Battles`,c:'#a3e635'},{v:`${sf(stats.vol,2)} SOL`,c:'#facc15'},{v:`${livePlayers} Live Players`,c:'#67e8f9'},{v:'Homepage synced',c:'#a78bfa'},{v:'Hybrid Mainnet',c:'#fb923c'}].map((s,i)=>(
             <span key={i} className="flex items-center gap-1 text-[10px] font-bold shrink-0" style={{color:s.c}}><span className="text-slate-700">·</span>{s.v}</span>
           ))}
+        </div>
+      </div>
+
+      <div className="rounded-xl border px-3 py-2.5" style={{background:'rgba(6,78,59,.055)',borderColor:'rgba(16,185,129,.16)'}}>
+        <div className="flex items-start gap-2">
+          <span className="text-emerald-400 text-sm mt-0.5">●</span>
+          <div className="min-w-0">
+            <p className="text-[10px] font-black text-emerald-400 tracking-widest uppercase leading-none">Synced live arena</p>
+            <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">Homepage and /trade read the same live battle feed. Hybrid mainnet MVP: wallet-signed entry, public treasury route, server verification, and realtime state sync.</p>
+          </div>
         </div>
       </div>
 
@@ -564,12 +985,12 @@ function TradeContent() {
           <div className="flex items-center gap-2">
             <span className="relative flex w-2.5 h-2.5"><span className="absolute inline-flex w-full h-full rounded-full bg-orange-400 opacity-40 animate-ping"/><span className="relative inline-flex w-2.5 h-2.5 rounded-full bg-orange-400"/></span>
             <h2 className="font-black text-xs tracking-widest uppercase" style={{color:'#f97316'}}>Live Battles</h2>
-            <span className="text-[9px] text-slate-600 font-mono">{battles.filter(b=>b.status==='live').length} active</span>
+            <span className="text-[9px] text-slate-600 font-mono">{activeLiveBattles.length} active</span>
           </div>
           <div className="flex items-center gap-2 text-[9px] font-bold">
-            <span style={{color:'#facc15'}}>{battles.filter(b=>b.status==='live'&&b.mode==='real').length} 💰 real</span>
+            <span style={{color:'#facc15'}}>{activeLiveBattles.filter(b=>b.mode==='real').length} 💰 real</span>
             <span className="text-slate-700">·</span>
-            <span className="text-slate-600">{battles.filter(b=>b.status==='live'&&b.mode==='arena').length} auto</span>
+            <span className="text-slate-600">{activeLiveBattles.filter(b=>b.mode==='arena').length} auto</span>
           </div>
         </div>
 
@@ -583,7 +1004,7 @@ function TradeContent() {
               </div>
             ))}
           </div>
-        ):battles.filter(b=>b.status==='live').length===0?(
+        ):activeLiveBattles.length===0?(
           <div className="rounded-2xl border border-orange-500/15 py-10 text-center space-y-3" style={{background:'rgba(20,10,4,.8)'}}>
             <div className="relative mx-auto w-12 h-12"><div className="absolute inset-0 rounded-full border-2 border-orange-500/25 animate-ping"/><div className="w-12 h-12 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"/></div>
             <p className="text-orange-300 text-sm font-black">🔥 Generating battles…</p>
@@ -592,12 +1013,14 @@ function TradeContent() {
           </div>
         ):(
           <div className="grid grid-cols-1 gap-3">
-            {battles.filter(b=>b.status==='live').map(battle=>{
+            {activeLiveBattles.map(battle=>{
               const tl = Math.max(0,Math.floor((battle.endTime-Date.now())/1000));
               const openModal = ()=>{
                 const wA=(battle.chartA.length>3)?battle.chartA:[0];
                 const wB=(battle.chartB.length>3)?battle.chartB:[0];
-                setActiveBattle({...battle,chartA:wA,chartB:wB});setBattleTimeLeft(tl);setPickedSide(null);setModalTab('chart');setRushPosition(null);soundedRef.current={};
+                const startPctA = clampBattlePct(Number.isFinite(battle.tokenAChange ?? NaN) ? (battle.tokenAChange ?? 0) : 0);
+                const startPctB = clampBattlePct(Number.isFinite(battle.tokenBChange ?? NaN) ? (battle.tokenBChange ?? 0) : 0);
+                setActiveBattle({...battle,chartA:wA,chartB:wB,tokenAChange:startPctA,tokenBChange:startPctB});setBattleTimeLeft(tl);setPickedSide(null);setModalTab('chart');setRushPosition(null);soundedRef.current={};setLivePctA(startPctA);setLivePctB(startPctB);setFrozenPctA(null);setFrozenPctB(null);
               };
               return(
                 <BattleCard key={battle.id} battle={battle} tokens={tokens} glFn={gl} onClick={openModal}/>
@@ -606,6 +1029,15 @@ function TradeContent() {
           </div>
         )}
       </section>
+
+      <SocialViralPanel
+        variant="arena"
+        battles={activeLiveBattles}
+        recentWinners={recentWinners}
+        leaderboard={leaderboard}
+        userProfile={userProfile}
+        wallet={publicKey?.toString() ?? null}
+      />
 
       <LiveActivity activities={activities} recentWinners={recentWinners}/>
 
@@ -633,7 +1065,7 @@ function TradeContent() {
 
       <details className="rounded-2xl border border-white/[.04] overflow-hidden" style={{background:'rgba(6,6,18,.98)'}}>
         <summary className="px-4 py-3 font-black text-[10px] text-slate-500 cursor-pointer list-none flex items-center justify-between select-none tracking-widest uppercase">
-          <span>🔗 On-Chain Transparency</span><span className="text-slate-700 font-normal normal-case tracking-normal">▾</span>
+          <span>🔗 Mainnet Transparency</span><span className="text-slate-700 font-normal normal-case tracking-normal">▾</span>
         </summary>
         <div className="px-4 pb-4 pt-2 space-y-2">
           <a href={`${CFG.solscan}/account/${CFG.treasury}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-3 rounded-xl border border-white/[.04] hover:border-orange-500/20 transition-colors" style={{background:'rgba(18,18,36,.8)'}}>
@@ -642,7 +1074,7 @@ function TradeContent() {
             <span className="text-slate-700 text-xs">↗</span>
           </a>
           <div className="flex flex-wrap gap-1.5">
-            {[{i:'🔥',t:'LP Burned',c:'#fb923c'},{i:'✅',t:'0% Dev',c:'#34d399'},{i:'🔐',t:'Auto Payout',c:'#38bdf8'},{i:'⚡',t:'Realtime',c:'#a78bfa'}].map(b=>(
+            {[{i:'💸',t:'Treasury Routed',c:'#fb923c'},{i:'🧾',t:'TX Verified',c:'#34d399'},{i:'🔐',t:'Hybrid MVP',c:'#38bdf8'},{i:'⚡',t:'Realtime DB',c:'#a78bfa'}].map(b=>(
               <span key={b.t} className="flex items-center gap-1 px-2 py-1 rounded-full text-[9px] font-bold" style={{background:`${b.c}12`,border:`1px solid ${b.c}28`,color:b.c}}>{b.i} {b.t}</span>
             ))}
           </div>
@@ -665,7 +1097,7 @@ function TradeContent() {
 
   // ── Liquidity status helper ─────────────────────────────────────────────────
   const getLiqStatus = (usd: number): LiqStatus => {
-    if (usd >= 50_000) return 'safe';
+    if (usd >= 20_000) return 'safe';
     if (usd >= 10_000) return 'low';
     if (usd > 0)       return 'very_low';
     return 'no_liquidity';
@@ -828,7 +1260,7 @@ function TradeContent() {
       if (amt > 10)   return showErr('Maximum bet: 10 SOL');
       if (solBal !== null && amt + 0.001 > solBal) return showErr(`Insufficient SOL. Punya ${sf(solBal,4)} SOL`);
     } else if (paymentToken === 'MRUSH') {
-      if (amt < 50_000)      return showErr('Minimum bet: 50,000 MRUSH');
+      if (amt < 20_000)      return showErr('Minimum bet: 20,000 MRUSH');
       if (mrushBal === null) return showErr('MRUSH balance loading, please wait');
       if (mrushBal < amt)    return showErr(`Insufficient MRUSH. You have ${fmtN(mrushBal)}`);
       if (solBal !== null && solBal < 0.001) return showErr('Need at least 0.001 SOL for transaction fee');
@@ -924,6 +1356,7 @@ function TradeContent() {
       const { bet } = data;
       if (!isAudd) saveProfile({ battlesJoined: (userProfile?.battlesJoined ?? 0) + (bet.isTopUp ? 0 : 1) });
       setActiveBattle(prev => prev ? { ...prev, players: bet.newPlayers, prizePool: bet.newPool } : prev);
+      setBattles(prev => prev.map(b => b.id === activeBattle.id ? { ...b, players: bet.newPlayers, prizePool: bet.newPool } : b));
       setJoinedBattleIds(prev => { const n = new Set(prev); n.add(activeBattle.id); return n; });
       showOk(`✅ Joined! ${sf(amt)} ${paymentToken} on ${pickedSide==='A'?activeBattle.tokenA:activeBattle.tokenB} | tx: ${txHash.slice(0,8)}…`);
 
@@ -937,7 +1370,7 @@ function TradeContent() {
     } finally {
       setIsJoiningBattle(false);
     }
-  }, [activeBattle, connected, publicKey, pickedSide, joinAmount, paymentToken, setJoinedBattleIds,
+  }, [activeBattle, connected, publicKey, pickedSide, joinAmount, paymentToken, setBattles, setJoinedBattleIds,
       solBal, mrushBal, auddBal, userProfile, saveProfile, signTransaction]);
   const handleSendMessage=useCallback(async ()=>{
     if(!newMessage.trim()||!publicKey)return;
@@ -1042,6 +1475,16 @@ function TradeContent() {
           </div>
         </div>
       </div>
+
+      <SocialViralPanel
+        variant="profile"
+        battles={activeLiveBattles}
+        recentWinners={recentWinners}
+        leaderboard={leaderboard}
+        userProfile={userProfile}
+        wallet={publicKey.toString()}
+      />
+
 
       {/* Battle stats */}
       {userProfile&&(
@@ -1190,10 +1633,13 @@ function TradeContent() {
   // ── Battle Modal ───────────────────────────────────────────────────────────
   const renderBattleModal=()=>{
     if(!activeBattle)return null;
-    // Use shared live prices (from chart tick) when live; fall back to chartA/B snapshot
+    // Single source of truth: frozen (locked at end) > live chart tick > battle card value.
+    // This keeps the outer battle card and inside modal perfectly synced on open.
     const isLiveNow = activeBattle.status==='live';
-    const aL    = isLiveNow && livePctA !== 0 ? livePctA : activeBattle.chartA[activeBattle.chartA.length-1]??0;
-    const bL    = isLiveNow && livePctB !== 0 ? livePctB : activeBattle.chartB[activeBattle.chartB.length-1]??0;
+    const basePctA = clampBattlePct(Number.isFinite(activeBattle.tokenAChange ?? NaN) ? (activeBattle.tokenAChange ?? 0) : 0);
+    const basePctB = clampBattlePct(Number.isFinite(activeBattle.tokenBChange ?? NaN) ? (activeBattle.tokenBChange ?? 0) : 0);
+    const aL = frozenPctA !== null ? frozenPctA : (Number.isFinite(livePctA) ? livePctA : basePctA);
+    const bL = frozenPctB !== null ? frozenPctB : (Number.isFinite(livePctB) ? livePctB : basePctB);
     const aWin  = aL>=bL;
     const isLive    = activeBattle.status==='live';
     const isReveal  = activeBattle.status==='ended'&&!activeBattle.payoutSignature;
@@ -1210,7 +1656,8 @@ function TradeContent() {
 
     return(
       <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/85 backdrop-blur-md">
-        <div className="w-full max-h-[94dvh] overflow-y-auto rounded-t-3xl border border-white/10 shadow-2xl relative slide-up" style={{background:'linear-gradient(160deg,#0c0804,#180e02,#080804)'}}>
+        <div className={`w-full max-h-[94dvh] overflow-y-auto rounded-t-3xl border border-white/10 shadow-2xl relative slide-up ${isReveal ? 'mr-battle-reveal' : ''} ${cnt10 ? 'mr-countdown-danger' : ''}`} style={{background:'linear-gradient(160deg,#0c0804,#180e02,#080804)'}}>
+          {isReveal&&<div className="pointer-events-none absolute inset-0 z-[1] flex items-start justify-center pt-24"><div className="rounded-full border border-yellow-400/30 px-5 py-2 text-xs font-black text-yellow-300 animate-pulse" style={{background:'rgba(120,53,15,.58)',boxShadow:'0 0 30px rgba(250,204,21,.24)'}}>🏆 Revealing winner…</div></div>}
           <button onClick={()=>{setActiveBattle(null);setRushPosition(null);}} className="absolute top-4 right-4 z-10 w-11 h-11 flex items-center justify-center rounded-full border border-white/10 text-slate-400 hover:text-white active:scale-90 transition-all" style={{background:'rgba(30,41,59,.8)'}}>✕</button>
 
           {/* Drag handle */}
@@ -1223,12 +1670,12 @@ function TradeContent() {
             {/* ── HEADER: token pair + badges ─────────────────────────── */}
             <div className="text-center pt-1">
               <div className="flex items-center justify-center gap-3 mb-2.5">
-                <TokenLogo symbol={activeBattle.tokenA} logoUrl={gl(activeBattle.tokenA)} size={44} className="border-2 border-orange-500/50 shadow-lg shrink-0" style={{boxShadow:'0 0 12px rgba(249,115,22,.25)'}}/>
+                <SafeTokenImg src={gl(activeBattle.tokenA)} sym={activeBattle.tokenA} size={44} className="border-2 border-orange-500/50 shadow-lg shrink-0" style={{boxShadow:'0 0 12px rgba(249,115,22,.25)'}}/>
                 <div>
                   <h2 className="text-lg font-black text-white leading-tight">{activeBattle.tokenA} <span className="text-slate-600 font-bold">vs</span> {activeBattle.tokenB}</h2>
-                  <p className="text-[10px] text-slate-600 mt-0.5 font-mono">Solana Mainnet</p>
+                  <p className="text-[10px] text-slate-600 mt-0.5 font-mono">Solana Hybrid Mainnet · Treasury routed</p>
                 </div>
-                <TokenLogo symbol={activeBattle.tokenB} logoUrl={gl(activeBattle.tokenB)} size={44} className="border-2 border-amber-500/50 shadow-lg shrink-0" style={{boxShadow:'0 0 12px rgba(251,191,36,.2)'}}/>
+                <SafeTokenImg src={gl(activeBattle.tokenB)} sym={activeBattle.tokenB} size={44} className="border-2 border-amber-500/50 shadow-lg shrink-0" style={{boxShadow:'0 0 12px rgba(251,191,36,.2)'}}/>
               </div>
               <div className="flex flex-wrap justify-center gap-2 text-xs">
                 {isLive&&<span className="flex items-center gap-1 px-2 py-1 rounded-full font-bold text-emerald-400 border border-emerald-500/25 animate-pulse" style={{background:'rgba(6,78,59,.4)'}}>● LIVE</span>}
@@ -1238,6 +1685,7 @@ function TradeContent() {
                 {activeBattle.status==='paid'&&<span className="px-2 py-1 rounded-full font-bold text-emerald-400 border border-emerald-500/25" style={{background:'rgba(6,78,59,.4)'}}>✅ PAID</span>}
                 <span className="px-2 py-1 rounded-full text-slate-300 border border-white/5" style={{background:'rgba(30,41,59,.5)'}}>👥 {activeBattle.players}</span>
                 <span className="px-2 py-1 rounded-full font-bold text-yellow-400 border border-yellow-500/20" style={{background:'rgba(120,53,15,.3)'}}>💰 {sf(activeBattle.prizePool)} SOL</span>
+                <span className="px-2 py-1 rounded-full font-bold text-cyan-300 border border-cyan-500/20" style={{background:'rgba(8,47,73,.28)'}}>🛡️ Hybrid MVP</span>
               </div>
             </div>
 
@@ -1256,6 +1704,11 @@ function TradeContent() {
               </div>
             </div>
 
+            {/* ── HOW TO WIN ──────────────────────────────────────────── */}
+            <div className="text-center py-1.5 text-[9px] text-slate-600 font-bold">
+              🏆 Highest <span className="text-orange-400 font-black">% from battle start</span> wins
+            </div>
+
             {/* ── JOINED BANNER ────────────────────────────────────────── */}
             {hasJoined&&isLive&&(
               <div className="flex items-center justify-center gap-2 py-2 rounded-xl border border-emerald-500/30"
@@ -1270,10 +1723,8 @@ function TradeContent() {
             <div className="grid grid-cols-2 gap-3">
               {([{s:'A' as const,sym:activeBattle.tokenA,ch:aL,lead:aWin,won:activeBattle.winner===activeBattle.tokenA},{s:'B' as const,sym:activeBattle.tokenB,ch:bL,lead:!aWin,won:activeBattle.winner===activeBattle.tokenB}]).map(t=>{
                 const picked=pickedSide===t.s;
-                const fallbackPrice = tokens.find(tk=>tk.symbol===t.sym)?.price??0;
-                const livePrice = t.s==='A'
-                  ? (isLiveNow && livePriceA>0 ? livePriceA : fallbackPrice)
-                  : (isLiveNow && livePriceB>0 ? livePriceB : fallbackPrice);
+                const marketFallback = tokens.find(tk=>tk.symbol===t.sym)?.price??0;
+                const livePrice = t.s==='A' ? (livePriceA || marketFallback) : (livePriceB || marketFallback);
                 return(
                   <button key={t.s} onClick={()=>isLive&&setPickedSide(t.s)} disabled={!isLive}
                     className="rounded-2xl p-4 text-center border-2 transition-all disabled:opacity-75 active:scale-[.97]"
@@ -1282,9 +1733,10 @@ function TradeContent() {
                       background:picked?'rgba(249,115,22,.15)':t.won?'rgba(6,78,59,.28)':'rgba(12,10,22,.85)',
                       boxShadow:picked?'0 0 18px rgba(249,115,22,.25) inset':t.won?'0 0 14px rgba(16,185,129,.15) inset':'none',
                     }}>
-                    <TokenLogo symbol={t.sym} logoUrl={gl(t.sym)} size={40} className="mx-auto mb-2 border border-white/10"/>
+                    <SafeTokenImg src={gl(t.sym)} sym={t.sym} size={40} className="mx-auto mb-2 border border-white/10"/>
                     <p className="font-black text-white text-sm">{t.sym}</p>
                     <p className={`text-base font-black mt-0.5 tabular-nums ${t.ch>=0?'text-emerald-400':'text-red-400'}`}>{t.ch>=0?'+':''}{t.ch.toFixed(3)}%</p>
+                    <p className="text-[8px] text-slate-600 leading-none mt-0.5">from battle start</p>
                     {livePrice>0&&<p className="text-[10px] text-slate-600 mt-0.5 tabular-nums">${livePrice<0.001?livePrice.toFixed(6):livePrice<1?livePrice.toFixed(4):livePrice.toFixed(2)}</p>}
                     {t.won&&<p className="text-xs text-emerald-400 mt-1 font-bold">🏆 WINNER</p>}
                     {picked&&<p className="text-xs mt-1 font-bold" style={{color:hasJoined?'#4ade80':'#fdba74'}}>{hasJoined?'✅ Bet placed':'✓ Your pick'}</p>}
@@ -1326,10 +1778,30 @@ function TradeContent() {
                 tokenBLogoUrl={gl(activeBattle.tokenB)}
                 tokenAPrice={tokens.find(t=>t.symbol===activeBattle.tokenA)?.price??0}
                 tokenBPrice={tokens.find(t=>t.symbol===activeBattle.tokenB)?.price??0}
-                tokenAChange24h={tokens.find(t=>t.symbol===activeBattle.tokenA)?.priceChange24h??0}
-                tokenBChange24h={tokens.find(t=>t.symbol===activeBattle.tokenB)?.priceChange24h??0}
+                tokenAChange24h={activeBattle.tokenAChange ?? 0}
+                tokenBChange24h={activeBattle.tokenBChange ?? 0}
                 isLive={activeBattle.status==='live'}
-                onPriceUpdate={(pA,pB,prA,prB)=>{setLivePctA(pA);setLivePctB(pB);setLivePriceA(prA);setLivePriceB(prB);}}
+                battleId={activeBattle.id}
+                onPriceUpdate={(pA,pB,prA,prB)=>{
+                  const nextA = clampBattlePct(pA);
+                  const nextB = clampBattlePct(pB);
+                  setLivePctA(nextA);setLivePctB(nextB);
+                  setLivePriceA(prA);setLivePriceB(prB);
+
+                  // Keep modal + outside BattleCard + homepage synced from the same 1s chart tick.
+                  setActiveBattle(prev => prev && prev.id === activeBattle.id
+                    ? { ...prev, tokenAChange: nextA, tokenBChange: nextB }
+                    : prev
+                  );
+                  setBattles(prev => prev.map(b => b.id === activeBattle.id
+                    ? { ...b, tokenAChange: nextA, tokenBChange: nextB }
+                    : b
+                  ));
+
+                  if(activeBattle&&activeBattle.status==='live'&&Math.floor((activeBattle.endTime-Date.now())/1000)<=3){
+                    setFrozenPctA(nextA);setFrozenPctB(nextB);
+                  }
+                }}
               />
             )}
 
@@ -1375,7 +1847,7 @@ function TradeContent() {
                           return(
                             <div key={tok} className="rounded-2xl border border-white/[.06] overflow-hidden" style={{background:'rgba(18,12,4,.8)'}}>
                               <div className="flex items-center gap-2 p-3 border-b border-white/[.04]">
-                                <TokenLogo symbol={tok} logoUrl={gl(tok)} size={28} className="border border-white/10 shrink-0"/>
+                                <SafeTokenImg src={gl(tok)} sym={tok} size={28} className="border border-white/10 shrink-0"/>
                                 <div>
                                   <p className="text-xs font-black text-white">{tok}</p>
                                   <p className={`text-[10px] font-black ${ch>=0?'text-emerald-400':'text-red-400'}`}>{ch>=0?'+':''}{ch.toFixed(3)}%</p>
@@ -1412,7 +1884,7 @@ function TradeContent() {
                       <div className="rounded-2xl border p-4 space-y-3" style={{background:'rgba(18,12,4,.9)',borderColor:rushPnL>=0?'rgba(74,222,128,.25)':'rgba(248,113,113,.25)'}}>
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <TokenLogo symbol={rushPosition.token} logoUrl={gl(rushPosition.token)} size={32} className="border border-white/10 shrink-0"/>
+                            <SafeTokenImg src={gl(rushPosition.token)} sym={rushPosition.token} size={32} className="border border-white/10 shrink-0"/>
                             <div>
                               <p className="text-xs font-black text-white">{rushPosition.dir==='long'?'▲ LONG':'▼ SHORT'} {rushPosition.token}</p>
                               <p className="text-[10px] text-slate-600">Entry: {rushPosition.entryChange.toFixed(3)}% → Now: {curChange.toFixed(3)}%</p>
@@ -1445,18 +1917,21 @@ function TradeContent() {
             {/* ── JOIN BET SECTION (below tabs, always visible when live) ── */}
             {isLive&&modalTab==='chart'&&(
               <div className="space-y-3 pt-1">
+                <div className="rounded-xl border px-3 py-2 text-[10px] leading-relaxed" style={{background:'rgba(8,47,73,.18)',borderColor:'rgba(34,211,238,.14)',color:'rgba(148,163,184,1)'}}>
+                  🛡️ <span className="font-bold text-cyan-300">Hybrid mainnet MVP:</span> your wallet signs first, treasury receives the entry, backend verifies the transaction, then the battle feed updates across homepage and arena.
+                </div>
                 <div className="grid grid-cols-3 gap-2">
-                  <button onClick={()=>setPaymentToken('SOL')} className="py-3 rounded-xl text-sm font-bold border transition-all min-h-[44px]" style={{borderColor:paymentToken==='SOL'?'rgba(249,115,22,.8)':'rgba(71,85,105,.3)',background:paymentToken==='SOL'?'rgba(249,115,22,.22)':'rgba(20,12,4,.6)',color:paymentToken==='SOL'?'white':'rgba(120,100,80,1)'}}>◎ SOL</button>
-                  <button onClick={()=>setPaymentToken('MRUSH')} className="py-3 rounded-xl text-sm font-bold border transition-all min-h-[44px]" style={{borderColor:paymentToken==='MRUSH'?'rgba(249,115,22,.8)':'rgba(71,85,105,.3)',background:paymentToken==='MRUSH'?'rgba(249,115,22,.22)':'rgba(30,41,59,.5)',color:paymentToken==='MRUSH'?'white':'rgba(100,116,139,1)'}}>
-                    <img src="https://dd.dexscreener.com/ds-data/tokens/solana/E5U8dLjntnAJtM9gvFRSZTYvx8BJhvWSXQwKaWcrpump.png?size=lg&key=2f8e8c" alt="MRUSH" className="w-4 h-4 rounded-full inline mr-1" onError={e=>(e.target as HTMLImageElement).src=ph('MR')}/>MRUSH
+                  <button onClick={()=>{setPaymentToken('SOL'); if((parseFloat(joinAmount)||0)<CFG.MIN_BET_SOL) setJoinAmount(String(CFG.MIN_BET_SOL));}} className="py-3 rounded-xl text-sm font-bold border transition-all min-h-[44px]" style={{borderColor:paymentToken==='SOL'?'rgba(249,115,22,.8)':'rgba(71,85,105,.3)',background:paymentToken==='SOL'?'rgba(249,115,22,.22)':'rgba(20,12,4,.6)',color:paymentToken==='SOL'?'white':'rgba(120,100,80,1)'}}>◎ SOL</button>
+                  <button onClick={()=>{setPaymentToken('MRUSH'); if((parseFloat(joinAmount)||0)<20000) setJoinAmount('20000');}} className="py-3 rounded-xl text-sm font-bold border transition-all min-h-[44px]" style={{borderColor:paymentToken==='MRUSH'?'rgba(249,115,22,.8)':'rgba(71,85,105,.3)',background:paymentToken==='MRUSH'?'rgba(249,115,22,.22)':'rgba(30,41,59,.5)',color:paymentToken==='MRUSH'?'white':'rgba(100,116,139,1)'}}>
+                    <SafeTokenImg src={LOGO_REGISTRY['MRUSH']||''} sym="MRUSH" size={16} className="inline mr-1"/>MRUSH
                   </button>
-                  <button onClick={()=>setPaymentToken('AUDD')} className="py-3 rounded-xl text-sm font-bold border transition-all min-h-[44px]" style={{borderColor:paymentToken==='AUDD'?'rgba(59,130,246,.8)':'rgba(71,85,105,.3)',background:paymentToken==='AUDD'?'rgba(59,130,246,.22)':'rgba(30,41,59,.5)',color:paymentToken==='AUDD'?'white':'rgba(100,116,139,1)'}}>
+                  <button onClick={()=>{setPaymentToken('AUDD'); if((parseFloat(joinAmount)||0)<MIN_BET_AUDD) setJoinAmount(String(MIN_BET_AUDD));}} className="py-3 rounded-xl text-sm font-bold border transition-all min-h-[44px]" style={{borderColor:paymentToken==='AUDD'?'rgba(59,130,246,.8)':'rgba(71,85,105,.3)',background:paymentToken==='AUDD'?'rgba(59,130,246,.22)':'rgba(30,41,59,.5)',color:paymentToken==='AUDD'?'white':'rgba(100,116,139,1)'}}>
                     🇦🇺 AUDD
                   </button>
                 </div>
                 <div>
-                  <input type="number" step={paymentToken==='SOL'?'0.001':paymentToken==='AUDD'?'1':'10000'} min={paymentToken==='SOL'?String(CFG.MIN_BET_SOL):'50000'} value={joinAmount} onChange={e=>setJoinAmount(e.target.value)} placeholder={paymentToken==='SOL'?'Amount in SOL':'Amount in MRUSH'} className="w-full rounded-xl px-4 py-3.5 text-white text-base border border-white/10 focus:border-orange-500 focus:outline-none bg-slate-900/80 min-h-[52px]"/>
-                  <p className="text-xs text-slate-500 mt-1.5">Min: {CFG.MIN_BET_SOL} SOL (~$0.10) · Fee: {sf(jFee,6)} · Tier: {jTier.name}</p>
+                  <input type="number" step={paymentToken==='SOL'?'0.001':paymentToken==='AUDD'?'1':'10000'} min={paymentToken==='SOL'?String(CFG.MIN_BET_SOL):paymentToken==='AUDD'?String(MIN_BET_AUDD):'20000'} value={joinAmount} onChange={e=>setJoinAmount(e.target.value)} placeholder={paymentToken==='SOL'?'Amount in SOL':paymentToken==='AUDD'?'Amount in AUDD':'Amount in MRUSH'} className="w-full rounded-xl px-4 py-3.5 text-white text-base border border-white/10 focus:border-orange-500 focus:outline-none bg-slate-900/80 min-h-[52px]"/>
+                  <p className="text-xs text-slate-500 mt-1.5">{paymentToken==='SOL' ? `Min: ${CFG.MIN_BET_SOL} SOL (~$0.10) · Fee: ${sf(jFee,6)} · Tier: ${jTier.name}` : paymentToken==='AUDD' ? `Min: ${MIN_BET_AUDD} AUDD · Stable battle entry · Balance: ${auddBal===null?'loading':sf(auddBal,2)+' AUDD'}` : `Min: 20,000 MRUSH · Fee tier: ${jTier.name}`}</p>
                 </div>
                 <button onClick={handleJoinBattle} disabled={isJoiningBattle||!connected||!pickedSide} className="w-full py-5 rounded-2xl font-black text-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 min-h-[60px]" style={{background:(!connected||!pickedSide)?'rgba(249,115,22,.2)':'linear-gradient(135deg,#ea580c,#f97316)',boxShadow:(!connected||!pickedSide)?'none':'0 0 28px rgba(249,115,22,.4)'}}>
                   {isJoiningBattle
@@ -1475,7 +1950,7 @@ function TradeContent() {
             {activeBattle.status==='paid'&&activeBattle.payoutSignature&&(activeBattle.mode??'arena')==='real'&&!activeBattle.payoutSignature.startsWith('PENDING')&&!activeBattle.payoutSignature.startsWith('ARENA')&&(
               <a href={`${CFG.solscan}/tx/${activeBattle.payoutSignature}`} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 w-full py-3 rounded-xl text-sm font-bold text-emerald-400 border border-emerald-500/25 hover:bg-emerald-900/20 transition-colors" style={{background:'rgba(6,78,59,.15)'}}>✅ Payout confirmed on-chain → verify ↗</a>
             )}
-            <button onClick={()=>handleShare(activeBattle.id,activeBattle.prizePool)} className="w-full py-2.5 rounded-xl text-xs font-bold text-orange-400 border border-orange-500/20 hover:bg-orange-900/20 transition-colors">🔗 Share & Earn 0.1% per join</button>
+            <button onClick={()=>handleShare(activeBattle.id,activeBattle.prizePool)} className="w-full py-2.5 rounded-xl text-xs font-bold text-orange-400 border border-orange-500/20 hover:bg-orange-900/20 transition-colors">🔗 Share Battle · referral reward on real joins</button>
           </div>
         </div>
       </div>
@@ -1514,7 +1989,7 @@ function TradeContent() {
                   <button key={tok.symbol} onClick={()=>{if(!createTokenA||createTokenA===tok.symbol)setCreateTokenA(tok.symbol);else if(createTokenB!==tok.symbol)setCreateTokenB(tok.symbol);}}
                     className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all ${isSelected?'border-orange-500 text-white':'border-white/10 text-slate-300 hover:border-slate-500'}`}
                     style={{background:isSelected?'rgba(249,115,22,.2)':'rgba(30,41,59,.5)'}}>
-                    <TokenLogo symbol={tok.symbol} logoUrl={tok.logoUrl||ph(tok.symbol)} size={16}/>
+                    <SafeTokenImg src={resolveLogoUrl(tok.symbol, tokens)||LOGO_REGISTRY[tok.symbol.toUpperCase()]||''} sym={tok.symbol} size={16}/>
                     {tok.symbol}
                     {liqDot&&<span className="text-[9px] leading-none">{liqDot}</span>}
                   </button>
@@ -1526,7 +2001,7 @@ function TradeContent() {
           <div className="grid grid-cols-2 gap-3">
             {(['A','B'] as const).map(s=>{const sym=s==='A'?createTokenA:createTokenB;const tok=tokens.find(t=>t.symbol===sym);return(
               <div key={s} className="rounded-2xl p-3 text-center border border-white/5" style={{background:'rgba(30,41,59,.5)'}}>
-                {tok&&<TokenLogo symbol={sym} logoUrl={tok.logoUrl} size={40} className="mx-auto mb-1"/>}
+                {tok&&<SafeTokenImg src={resolveLogoUrl(sym, tokens)||LOGO_REGISTRY[sym.toUpperCase()]||''} sym={sym} size={40} className="mx-auto mb-1"/>}
                 <select value={sym} onChange={e=>s==='A'?setCreateTokenA(e.target.value):setCreateTokenB(e.target.value)} className="w-full bg-transparent text-center font-bold text-white text-sm focus:outline-none cursor-pointer">{tokens.filter(t=>t.symbol!==(s==='A'?createTokenB:createTokenA)).map(t=><option key={t.symbol} value={t.symbol} className="bg-slate-900">{t.symbol}</option>)}</select>
               </div>
             );})}
@@ -1553,7 +2028,7 @@ function TradeContent() {
             </div>
           );})()}
 
-          <button onClick={handleCreateBattle} disabled={isCreatingBattle||!connected||createTokenA===createTokenB} className="w-full py-5 rounded-2xl font-black text-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 min-h-[60px]" style={{background:(!connected||createTokenA===createTokenB)?'rgba(249,115,22,.2)':'linear-gradient(135deg,#ea580c,#f97316)',boxShadow:(!connected||createTokenA===createTokenB)?'none':'0 0 24px rgba(249,115,22,.4)'}}>
+          <button onClick={handleCreateBattle} disabled={isCreatingBattle||!connected||createTokenA===createTokenB} className="mr-create-glow w-full py-5 rounded-2xl font-black text-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 min-h-[60px]" style={{background:(!connected||createTokenA===createTokenB)?'rgba(249,115,22,.2)':'linear-gradient(135deg,#ea580c,#f97316)',boxShadow:(!connected||createTokenA===createTokenB)?'none':'0 0 24px rgba(249,115,22,.4)'}}>
             {isCreatingBattle
               ? '⏳ Waiting for wallet confirmation…'
               : !connected
@@ -1578,7 +2053,7 @@ function TradeContent() {
         <div className="max-w-lg mx-auto px-3 py-2 flex items-center justify-between gap-2">
           {/* Logo + status */}
           <div className="flex items-center gap-2.5 min-w-0">
-            <img src="/logomeme.png" alt="MemeRush" className="w-7 h-7 rounded-full object-cover flex-shrink-0" onError={e=>(e.target as HTMLImageElement).style.display='none'}/>
+            <img src="/mrush-logo.png" alt="MemeRush" className="w-7 h-7 rounded-full object-cover flex-shrink-0" onError={e=>(e.target as HTMLImageElement).style.display='none'}/>
             <div className="min-w-0">
               <p className="text-sm font-black bg-gradient-to-r from-orange-400 to-amber-300 bg-clip-text text-transparent leading-none">MemeRush</p>
               <div className="flex items-center gap-1 mt-0.5">
@@ -1591,7 +2066,7 @@ function TradeContent() {
           {/* MRUSH price pill (mobile: icon only, sm+: full) */}
           {mrushLive&&mrushLive.price>0&&(
             <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-white/10 flex-shrink-0" style={{background:'rgba(25,15,5,.7)'}}>
-              <img src={tokens.find(t=>t.symbol==='STONK')?.logoUrl} alt="MRUSH" className="w-3.5 h-3.5 rounded-full" onError={e=>(e.target as HTMLImageElement).src=ph('MR')}/>
+              <SafeTokenImg src={LOGO_REGISTRY['MRUSH']||''} sym="MRUSH" size={14} className="object-cover"/>
               <span className="font-mono font-bold text-white">${mrushLive.price.toFixed(6)}</span>
               <span className={mrushLive.ch24>=0?'text-emerald-400':'text-red-400'}>{mrushLive.ch24>=0?'▲':'▼'}{Math.abs(mrushLive.ch24).toFixed(1)}%</span>
             </div>
@@ -1616,6 +2091,23 @@ function TradeContent() {
       {errMsg&&<div className="fixed top-14 right-3 z-[10000] max-w-xs p-4 rounded-2xl backdrop-blur-sm shadow-2xl border border-red-500/50" style={{background:'rgba(127,29,29,.95)'}}><p className="font-bold text-red-300 text-sm mb-1">⚠️ Error</p><p className="text-xs text-slate-300">{errMsg}</p><button onClick={()=>setErrMsg(null)} className="mt-2 text-xs text-red-400">Dismiss ✕</button></div>}
       {okMsg&&<div className="fixed top-14 right-3 z-[10000] max-w-xs p-4 rounded-2xl backdrop-blur-sm shadow-2xl border border-emerald-500/50" style={{background:'rgba(6,78,59,.95)'}}><p className="text-sm text-emerald-300 font-semibold break-all">{okMsg}</p></div>}
       {showWinToast&&<WinToast message="🏆 You Won!" amount={winAmount} onClose={()=>setShowWinToast(false)}/>}
+      <SoundFX
+        activeBattle={activeBattle}
+        battleTimeLeft={battleTimeLeft}
+        winOpen={Boolean(winResult || showWinToast)}
+        liveActivityCount={activities.length + recentWinners.length}
+      />
+      {winResult&&publicKey&&<WinResultModal
+        open={Boolean(winResult)}
+        amount={winResult.amount}
+        battle={winResult.battle}
+        winnerToken={winResult.winnerToken}
+        pickedToken={winResult.pickedToken}
+        txHash={winResult.txHash}
+        wallet={publicKey.toString()}
+        isReal={winResult.isReal}
+        onClose={()=>setWinResult(null)}
+      />}
 
       {/* Modals */}
       {activeBattle&&renderBattleModal()}
@@ -1646,7 +2138,7 @@ function TradeContent() {
                     {/* Token identity row */}
                     <div className="flex items-center gap-3">
                       <div className="relative">
-                        <TokenLogo symbol={fetchedTokenData.symbol} logoUrl={fetchedTokenData.logoUrl} size={48}/>
+                        <SafeTokenImg src={fetchedTokenData.logoUrl||LOGO_REGISTRY[fetchedTokenData.symbol.toUpperCase()]||''} sym={fetchedTokenData.symbol} size={48}/>
                         {!isRealLogo&&<span className="absolute -bottom-1 -right-1 text-[8px] px-1 rounded-full font-bold" style={{background:'rgba(71,85,105,.9)',color:'#94a3b8',border:'1px solid rgba(71,85,105,.5)'}}>AVT</span>}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -1747,6 +2239,13 @@ function TradeContent() {
         details>summary{-webkit-user-select:none;user-select:none}
         @keyframes mr-fade-up{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
         @keyframes mr-glow-pulse{0%,100%{box-shadow:0 0 10px rgba(249,115,22,.25)}50%{box-shadow:0 0 24px rgba(249,115,22,.55)}}
+
+        @keyframes mr-create-breathe{0%,100%{box-shadow:0 0 18px rgba(249,115,22,.30);filter:saturate(1)}50%{box-shadow:0 0 32px rgba(249,115,22,.62);filter:saturate(1.15)}}
+        @keyframes mr-reveal-flash{0%,100%{box-shadow:0 0 24px rgba(250,204,21,.15)}50%{box-shadow:0 0 70px rgba(250,204,21,.38)}}
+        @keyframes mr-countdown-ring{0%,100%{box-shadow:0 0 24px rgba(239,68,68,.12)}50%{box-shadow:0 0 52px rgba(239,68,68,.34)}}
+        .mr-create-glow:not(:disabled){animation:mr-create-breathe 2.4s ease-in-out infinite}
+        .mr-battle-reveal{animation:mr-reveal-flash 1.2s ease-in-out infinite}
+        .mr-countdown-danger{animation:mr-countdown-ring .8s ease-in-out infinite}
         .mr-fade-up{animation:mr-fade-up .2s ease-out}
         .mr-glow-btn:hover{animation:mr-glow-pulse 1.5s ease-in-out infinite}
         .wallet-adapter-button{background:linear-gradient(135deg,#ea580c,#f97316)!important;border-radius:.75rem!important;font-weight:900!important;font-size:12px!important;padding:8px 12px!important;height:auto!important;box-shadow:0 0 14px rgba(249,115,22,.35)!important}
