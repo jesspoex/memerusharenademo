@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
         console.error(`[Payout] Failed for ${battleId}:`, result.error);
         return NextResponse.json({ success:false, error:result.error, battleId }, { status:500 });
       }
-      return NextResponse.json({ success:true, battleId, txHash:result.txHash, winnerWallet:result.winnerWallet, winnerToken:result.winnerToken, payoutSol:result.payoutSol, alreadyPaid:result.alreadyPaid ?? false });
+      return NextResponse.json({ success:true, battleId, txHash:result.txHash, winnerWallet:result.winnerWallet, winnerToken:result.winnerToken, payoutSol:result.payoutSol, alreadyPaid:result.alreadyPaid ?? false, refund: result.winnerToken === 'REFUND' });
     } finally {
       releasePayoutLock(battleId);
     }
