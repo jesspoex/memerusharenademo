@@ -65,14 +65,23 @@ export function useBattleData(
   const loadStats = useCallback(async () => {
     try {
       const res  = await fetch('/api/stats', { cache: 'no-store' });
-      const data = await res.json() as { players?: number; battles?: number; volSol?: number; paidSol?: number };
+      const data = await res.json() as {
+        players?: number; battles?: number; volSol?: number; paidSol?: number;
+        treasuryBal?: number; livePool?: number; liveTotal?: number; liveReal?: number;
+      };
       setDbStats({
-        id:         1,
-        players:    data.players  ?? 0,
-        battles:    data.battles  ?? 0,
-        vol_sol:    data.volSol   ?? 0,
-        paid_sol:   data.paidSol  ?? 0,
-        updated_at: new Date().toISOString(),
+        id:          1,
+        players:     data.players     ?? 0,
+        battles:     data.battles     ?? 0,
+        vol_sol:     data.volSol      ?? 0,
+        paid_sol:    data.paidSol     ?? 0,
+        updated_at:  new Date().toISOString(),
+        // Extended live fields
+        treasuryBal: data.treasuryBal ?? 0,
+        livePool:    data.livePool    ?? 0,
+        liveTotal:   data.liveTotal   ?? 0,
+        liveReal:    data.liveReal    ?? 0,
+        liveArena:   0,
       });
     } catch {}
   }, []);
@@ -382,33 +391,31 @@ export function useBattleData(
           return { ...b, tokenAChange: na, tokenBChange: nb, chartA: cA, chartB: cB };
         });
 
-        // Sync active battle chart
-        setBattles(cur => {
-          setActiveBattle(prevActive => {
-            if (!prevActive || prevActive.status !== 'live') return prevActive;
-            const tl = Math.max(0, Math.floor((prevActive.endTime - now) / 1000));
-            setBattleTimeLeft(tl);
-            if (tl <= 10 && tl > 0 && !soundedRef.current[`${prevActive.id}_${tl}`]) {
-              soundedRef.current[`${prevActive.id}_${tl}`] = true;
-              playTick();
-            }
-            if (tl === 0 && !soundedRef.current[`${prevActive.id}_win`]) {
-              soundedRef.current[`${prevActive.id}_win`] = true;
-              setTimeout(playWinner, 300);
-            }
-            const up = cur.find(b => b.id === prevActive.id);
-            if (!up) return prevActive;
-            return {
-              ...prevActive,
-              chartA:       up.chartA,
-              chartB:       up.chartB,
-              tokenAChange: up.tokenAChange,
-              tokenBChange: up.tokenBChange,
-              status:       up.status,
-              winner:       up.winner,
-            };
-          });
-          return cur;
+        // Sync active battle from this same computed array.
+        // Avoid nested setBattles using stale state, which made the modal/card percentages drift.
+        setActiveBattle(prevActive => {
+          if (!prevActive || prevActive.status !== 'live') return prevActive;
+          const tl = Math.max(0, Math.floor((prevActive.endTime - now) / 1000));
+          setBattleTimeLeft(tl);
+          if (tl <= 10 && tl > 0 && !soundedRef.current[`${prevActive.id}_${tl}`]) {
+            soundedRef.current[`${prevActive.id}_${tl}`] = true;
+            playTick();
+          }
+          if (tl === 0 && !soundedRef.current[`${prevActive.id}_win`]) {
+            soundedRef.current[`${prevActive.id}_win`] = true;
+            setTimeout(playWinner, 300);
+          }
+          const up = updated.find(b => b.id === prevActive.id);
+          if (!up) return prevActive;
+          return {
+            ...prevActive,
+            chartA:       up.chartA,
+            chartB:       up.chartB,
+            tokenAChange: up.tokenAChange,
+            tokenBChange: up.tokenBChange,
+            status:       up.status,
+            winner:       up.winner,
+          };
         });
 
         return updated;
