@@ -305,3 +305,69 @@ button:active {
   background: rgba(168, 85, 247, 0.5);
   border-radius: 4px;
 }
+
+/* ── MemeRush Premium Upgrades ── */
+
+/* Animated gradient background for arena */
+@keyframes mr-bg-drift {
+  0% { background-position: 0% 0%; }
+  50% { background-position: 100% 100%; }
+  100% { background-position: 0% 0%; }
+}
+
+/* Premium card hover */
+.mr-card-hover {
+  transition: transform 0.2s cubic-bezier(.4,0,.2,1), box-shadow 0.2s cubic-bezier(.4,0,.2,1);
+}
+.mr-card-hover:hover {
+  transform: translateY(-2px) scale(1.002);
+}
+.mr-card-hover:active {
+  transform: scale(0.985);
+}
+
+/* Smooth number transitions */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  transition: color 0.3s ease;
+}
+
+/* Battle card pulse border for live */
+@keyframes mr-live-border {
+  0%, 100% { border-color: rgba(249,115,22,.2); }
+  50% { border-color: rgba(249,115,22,.5); }
+}
+
+/* Premium scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(249,115,22,.2) transparent;
+}
+*::-webkit-scrollbar { width: 2px; height: 2px; }
+*::-webkit-scrollbar-thumb { background: rgba(249,115,22,.25); border-radius: 2px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* Prevent momentum scroll clipping on iOS */
+.overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* Better touch targets for mobile */
+button, a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Glass card effect */
+.mr-glass {
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+}
+
+/* Neon text glow */
+.mr-neon-orange {
+  text-shadow: 0 0 10px rgba(249,115,22,.6), 0 0 20px rgba(249,115,22,.3);
+}
+.mr-neon-green {
+  text-shadow: 0 0 10px rgba(34,197,94,.6), 0 0 20px rgba(34,197,94,.3);
+}

@@ -41,6 +41,8 @@ export interface DbBattle {
   created_at: string; ended_at?: string;
   mode: BattleMode; type?: 'system' | 'user';
   fee_collected?: number; total_deposited?: number;
+  payout_tx_hash?: string;  // set by payout system after winner paid
+  meta?: Record<string, unknown>;
 }
 export interface DbBet {
   id?: number; battle_id: string; wallet: string;
@@ -59,6 +61,12 @@ export interface DbWinner {
 export interface DbStats {
   id: number; players: number; battles: number;
   vol_sol: number; paid_sol: number; updated_at?: string;
+  // Runtime fields from /api/stats (not in DB table)
+  treasuryBal?: number;
+  livePool?: number;
+  liveTotal?: number;
+  liveReal?: number;
+  liveArena?: number;
 }
 
 export interface Token {
