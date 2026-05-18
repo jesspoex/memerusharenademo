@@ -1,786 +1,485 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
-// ── SHARED THEME (inline — same tokens as lib/theme.ts) ──────────────────────
-const G = {
-  primary:     'linear-gradient(135deg,#ea580c,#f97316)',
-  primarySoft: 'linear-gradient(135deg,rgba(234,88,12,.6),rgba(249,115,22,.4))',
-  brand:       'linear-gradient(90deg,#fb923c,#fbbf24)',
-  barNormal:   'linear-gradient(90deg,#f97316,#fbbf24)',
-  barUrgent:   'linear-gradient(90deg,#ef4444,#f97316)',
-  accentOrange:'linear-gradient(90deg,transparent,#f97316,transparent)',
-};
-const S = {
-  primaryBtn:   '0 0 0 1px rgba(255,255,255,.08),0 8px 40px rgba(249,115,22,.55),0 3px 14px rgba(234,88,12,.3)',
-  primaryBtnSm: '0 0 14px rgba(249,115,22,.4)',
-};
-
-// ── CONFIG ────────────────────────────────────────────────────────────────────
 const C = {
-  TREASURY: process.env.NEXT_PUBLIC_TREASURY_WALLET ?? 'Fwsyjj7sf64MxCNfkysQ4UoJbE1MYXBe7dp35Czd5Vew',
-  MRUSH_MINT: process.env.NEXT_PUBLIC_MRUSH_MINT ?? 'E5U8dLjntnAJtM9gvFRSZTYvx8BJhvWSXQwKaWcrpump',
-  TWITTER:  'https://x.com/memerusharena',
-  TELEGRAM: 'https://t.me/memerusharena',
-  DISCORD:  'https://discord.gg/xWYWxe5wxG',
-  LOGO:     '/mrush-logo.png',
-  SITE:     process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.meemerush.xyz',
-  MIN_SOL:  '0.001',
-  MIN_USD:  '~$0.10',
+  TREASURY: process.env.NEXT_PUBLIC_TREASURY_WALLET ?? "Fwsyjj7sf64MxCNfkysQ4UoJbE1MYXBe7dp35Czd5Vew",
+  TWITTER: "https://x.com/memerusharena",
+  TELEGRAM: "https://t.me/memerusharena",
+  DISCORD: "https://discord.gg/xWYWxe5wxG",
+  LOGO: "/mrush-logo.png",
+  MIN_SOL: "0.001",
+  MIN_USD: "~$0.10",
 };
 
-// ── TYPES ─────────────────────────────────────────────────────────────────────
-interface ApiBattle {
+type Battle = {
   id: string; token_a: string; token_b: string;
-  prize_pool: number; players: number; status: 'live'|'ended'|'paid';
-  end_time?: string; start_time?: string;
-  mode: 'arena'|'real'; type?: 'system'|'user'; creator: string;
-}
-interface ApiStats {
-  players?: number; battles?: number; volSol?: number; paidSol?: number;
-}
-
-// ── TOKEN LOGOS ───────────────────────────────────────────────────────────────
-const TOKEN_LOGOS: Record<string,string> = {
-  BONK:   'https://assets.coingecko.com/coins/images/28600/large/bonk.jpg',
-  WIF:    'https://assets.coingecko.com/coins/images/33567/large/dogwifhat.jpg',
-  POPCAT: 'https://assets.coingecko.com/coins/images/33908/large/popcat.png',
-  BOME:   'https://assets.coingecko.com/coins/images/35215/large/bome.png',
-  MYRO:   'https://assets.coingecko.com/coins/images/33427/large/myro.png',
-  SOL:    'https://assets.coingecko.com/coins/images/4128/large/solana.png',
-  PEPE:   'https://assets.coingecko.com/coins/images/29850/large/pepe-token.jpeg',
-  MRUSH:  '/mrush-logo.png',
+  prize_pool?: number; players?: number; status?: string;
+  end_time?: string; start_time?: string; mode?: string; type?: string;
 };
-const fallbackLogo = (s: string) => `https://ui-avatars.com/api/?name=${encodeURIComponent(s)}&background=ea580c&color=fff&bold=true&size=96`;
-const logo = (s: string) => TOKEN_LOGOS[(s || '').toUpperCase()] ?? fallbackLogo(s);
+type Stats = { players?: number; battles?: number; volSol?: number; paidSol?: number };
 
-// ── HOOKS ─────────────────────────────────────────────────────────────────────
-function useCountdown(end: string|undefined) {
-  const calc = () => end ? Math.max(0, Math.floor((new Date(end).getTime()-Date.now())/1000)) : 0;
-  const [s, setS] = useState(calc);
-  useEffect(()=>{ setS(calc()); const id=setInterval(()=>setS(calc()),1000); return ()=>clearInterval(id); },[end]);
-  const m = Math.floor(s/60).toString().padStart(2,'0');
-  const sec = (s%60).toString().padStart(2,'0');
-  return { display:`${m}:${sec}`, urgent: s>0&&s<120, expired: s===0 };
+const TOKEN_LOGOS: Record<string, string[]> = {
+  BONK: ["https://coin-images.coingecko.com/coins/images/28600/large/bonk.jpg"],
+  WIF: ["https://coin-images.coingecko.com/coins/images/33566/large/dogwifhat.jpg", "https://assets.coingecko.com/coins/images/33567/large/dogwifhat.jpg"],
+  POPCAT: ["https://coin-images.coingecko.com/coins/images/33760/large/image.jpg", "https://assets.coingecko.com/coins/images/33908/large/popcat.png"],
+  BOME: ["https://coin-images.coingecko.com/coins/images/36071/large/bome.png"],
+  MYRO: ["https://coin-images.coingecko.com/coins/images/33427/large/myro.png"],
+  SOL: ["https://coin-images.coingecko.com/coins/images/4128/large/solana.png"],
+  PEPE: ["https://coin-images.coingecko.com/coins/images/29850/large/pepe-token.jpeg"],
+  MRUSH: ["/mrush-logo.png"],
+};
+
+const short = (w = "") => w.length > 12 ? `${w.slice(0, 6)}...${w.slice(-6)}` : w;
+const fallbackLogo = (s: string) => `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'><circle cx='20' cy='20' r='20' fill='%23ea580c'/><text x='20' y='26' text-anchor='middle' font-family='system-ui' font-weight='bold' font-size='14' fill='white'>${(s||"?").slice(0,2).toUpperCase()}</text></svg>`;
+
+function TokenLogo({ symbol, className = "" }: { symbol: string; className?: string }) {
+  const key = (symbol || "").toUpperCase();
+  const sources = TOKEN_LOGOS[key] ?? [];
+  const [idx, setIdx] = useState(0);
+  useEffect(() => setIdx(0), [key]);
+  const src = sources[idx] ?? fallbackLogo(key);
+  return (
+    <img src={src} alt={key} referrerPolicy="no-referrer" className={`object-cover ${className}`}
+      onError={() => { if (idx < sources.length - 1) setIdx(i => i + 1); }} />
+  );
 }
 
-// ── BATTLE CARD ───────────────────────────────────────────────────────────────
-function BattleCard({ b, go }: { b: ApiBattle; go: ()=>void }) {
-  const { display, urgent } = useCountdown(b.end_time);
-  const isReal = b.mode === 'real';
-  const [chA, setChA] = useState(()=>(Math.random()-.48)*4);
-  const [chB, setChB] = useState(()=>(Math.random()-.52)*4);
-  useEffect(()=>{
-    const id = setInterval(()=>{
-      setChA(p=>parseFloat((p+(Math.random()-.5)*.25).toFixed(3)));
-      setChB(p=>parseFloat((p+(Math.random()-.5)*.25).toFixed(3)));
+function Countdown({ end }: { end?: string }) {
+  const calc = () => end ? Math.max(0, Math.floor((new Date(end).getTime() - Date.now()) / 1000)) : 0;
+  const [sec, setSec] = useState(calc);
+  useEffect(() => {
+    setSec(calc());
+    const id = setInterval(() => setSec(calc()), 1000);
+    return () => clearInterval(id);
+  }, [end]);
+  const m = String(Math.floor(sec / 60)).padStart(2, "0");
+  const s = String(sec % 60).padStart(2, "0");
+  const urgent = sec < 30 && sec > 0;
+  return (
+    <span className={`font-mono font-black tabular-nums ${urgent ? "text-red-300" : "text-orange-300"}`}
+      style={{ animation: urgent ? "hp-timer-blink .8s ease-in-out infinite" : "none" }}>
+      {m}:{s}
+    </span>
+  );
+}
+
+function MiniBattle({ b, onJoin }: { b: Battle; onJoin: () => void }) {
+  const [a, setA] = useState(() => Number(((Math.random() - 0.45) * 3).toFixed(2)));
+  const [bv, setBv] = useState(() => Number(((Math.random() - 0.55) * 3).toFixed(2)));
+  useEffect(() => {
+    const id = setInterval(() => {
+      setA(v => Number((v + (Math.random() - 0.5) * 0.25).toFixed(2)));
+      setBv(v => Number((v + (Math.random() - 0.5) * 0.25).toFixed(2)));
     }, 2000);
-    return ()=>clearInterval(id);
-  },[]);
-  const aL = chA > chB;
-  const diff = Math.abs(chA-chB).toFixed(2);
-  const dur = (b.start_time&&b.end_time) ? (new Date(b.end_time).getTime()-new Date(b.start_time).getTime())/1000 : 300;
-  const pct = b.end_time ? Math.min(100,Math.max(0,(1-Math.max(0,(new Date(b.end_time).getTime()-Date.now())/1000)/dur)*100)) : 50;
+    return () => clearInterval(id);
+  }, []);
+  const leadA = a >= bv;
+  const pool = Number(b.prize_pool ?? 0);
+  const left = b.end_time ? Math.max(0, Math.floor((new Date(b.end_time).getTime() - Date.now()) / 1000)) : 999;
+  const ending = left < 60;
 
   return (
-    <div onClick={go} className="group relative rounded-2xl overflow-hidden cursor-pointer transition-all active:scale-[.98]"
+    <button onClick={onJoin}
+      className="group text-left rounded-2xl border transition-all duration-200 active:scale-[0.97] overflow-hidden relative"
       style={{
-        background: isReal ? 'linear-gradient(180deg,rgba(20,8,2,.99),rgba(8,4,1,.99))' : 'linear-gradient(180deg,rgba(10,10,22,.99),rgba(5,5,14,.99))',
-        border: `1px solid ${urgent?'rgba(239,68,68,.55)':isReal?'rgba(249,115,22,.28)':b.players>=3?'rgba(249,115,22,.18)':'rgba(30,41,59,.55)'}`,
-        boxShadow: urgent
-          ? '0 0 24px rgba(239,68,68,.18), 0 4px 20px rgba(0,0,0,.6)'
-          : isReal
-            ? '0 4px 24px rgba(249,115,22,.14)'
-            : b.players>=3
-              ? '0 0 14px rgba(249,115,22,.08)'
-              : 'none',
+        background: "linear-gradient(180deg,rgba(14,8,2,.96),rgba(7,4,1,.98))",
+        border: ending ? "1px solid rgba(239,68,68,.35)" : "1px solid rgba(249,115,22,.18)",
+        boxShadow: ending ? "0 0 20px rgba(239,68,68,.12)" : "0 0 16px rgba(249,115,22,.08)",
       }}>
       {/* Top accent */}
-      <div className="h-[1.5px]" style={{background: urgent?G.barUrgent:isReal?G.accentOrange:'linear-gradient(90deg,transparent,rgba(71,85,105,.3),transparent)'}}/>
-      {/* Hover glow */}
-      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
-        style={{background:'radial-gradient(ellipse at 50% 0%,rgba(249,115,22,.04),transparent 70%)'}}/>
+      <div className="h-[1.5px]" style={{ background: ending ? "linear-gradient(90deg,transparent,#ef4444,transparent)" : "linear-gradient(90deg,transparent,#f97316 40%,#fbbf24 60%,transparent)" }} />
 
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-2.5 pb-0">
-        <div className="flex items-center gap-1.5">
-          <span className="relative flex w-1.5 h-1.5">
-            <span className="absolute inline-flex w-full h-full rounded-full opacity-60 animate-ping" style={{background:urgent?'#ef4444':'#f97316'}}/>
-            <span className="relative inline-flex w-1.5 h-1.5 rounded-full" style={{background:urgent?'#ef4444':'#f97316'}}/>
-          </span>
-          {isReal
-            ? <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full" style={{background:'rgba(120,53,15,.55)',color:'#fbbf24',border:'1px solid rgba(251,191,36,.25)'}}>💰 REAL</span>
-            : b.players>=3
-              ? <span className="text-[9px] font-black px-2 py-0.5 rounded-full animate-pulse" style={{background:'rgba(234,88,12,.35)',color:'#fb923c',border:'1px solid rgba(249,115,22,.45)',boxShadow:'0 0 8px rgba(249,115,22,.3)'}}>🔥 HOT</span>
-              : <span className="text-[8px] px-1.5 py-0.5 rounded-full" style={{background:'rgba(30,41,59,.5)',color:'rgba(71,85,105,1)'}}>AUTO</span>
-          }
-          <span className="text-[9px] text-slate-600">· {b.players} in</span>
-        </div>
-        <span className={`font-mono font-black text-sm tabular-nums px-2 py-0.5 rounded-lg ${urgent?'text-red-400 animate-pulse':''}`}
-          style={{color:urgent?'#f87171':'#fb923c',background:urgent?'rgba(239,68,68,.1)':'rgba(30,15,5,.6)'}}>
-          {display}
-        </span>
-      </div>
-
-      {/* VS layout */}
-      <div className="grid grid-cols-[1fr_auto_1fr] gap-2 px-3 py-2.5 items-center">
-        <div className={`rounded-xl p-2.5 border transition-all ${aL?'border-orange-500/30':'border-white/5'}`}
-          style={{background:aL?'rgba(249,115,22,.07)':'rgba(255,255,255,.02)'}}>
+      <div className="p-4">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <div className="relative flex-shrink-0">
-              <img src={logo(b.token_a)} alt={b.token_a} className="w-9 h-9 rounded-full border-2" style={{borderColor:aL?'rgba(249,115,22,.5)':'rgba(255,255,255,.1)'}} onError={e=>{ e.currentTarget.onerror=null; e.currentTarget.src=fallbackLogo(b.token_a); }}/>
-              {aL&&<div className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-black text-black" style={{background:'#f97316'}}>▲</div>}
-            </div>
-            <div>
-              <p className="font-black text-white text-sm leading-none">{b.token_a}</p>
-              <p className={`text-xs font-black mt-0.5 tabular-nums ${chA>=0?'text-emerald-400':'text-red-400'}`}>{chA>=0?'+':''}{chA.toFixed(2)}%</p>
-            </div>
+            <span className="relative flex w-2 h-2">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-orange-500 opacity-60 animate-ping" />
+              <span className="relative inline-flex w-2 h-2 rounded-full" style={{ background: ending ? "#ef4444" : "#f97316" }} />
+            </span>
+            <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: ending ? "#f87171" : "#fb923c" }}>
+              {ending ? "ENDING NOW" : "LIVE"}
+            </span>
+          </div>
+          <div className="px-3 py-1 rounded-xl text-sm" style={{ background: "rgba(0,0,0,.4)", border: "1px solid rgba(255,255,255,.07)" }}>
+            <Countdown end={b.end_time} />
           </div>
         </div>
 
-        <div className="flex flex-col items-center gap-0.5 px-1">
-          <div className="w-7 h-7 rounded-full border flex items-center justify-center text-[8px] font-black" style={{background:'rgba(20,12,4,.8)',borderColor:'rgba(249,115,22,.12)',color:'rgba(249,115,22,.5)'}}>VS</div>
-          {parseFloat(diff)>0.01&&<span className="text-[8px] font-black tabular-nums" style={{color:aL?'#4ade80':'#f97316'}}>{parseFloat(diff).toFixed(2)}%</span>}
+        {/* VS Grid */}
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          {/* Token A */}
+          <div className={`rounded-xl border p-3 transition-all ${leadA ? "border-orange-400/45" : "border-white/8"}`}
+            style={{ background: leadA ? "rgba(249,115,22,.09)" : "rgba(255,255,255,.02)", boxShadow: leadA ? "inset 0 0 14px rgba(249,115,22,.06)" : "none" }}>
+            <div className="flex items-center gap-2">
+              <TokenLogo symbol={b.token_a} className="h-9 w-9 rounded-full border border-white/15 flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="font-black text-white text-sm leading-none truncate">{b.token_a}</p>
+                <p className={`text-xs font-black mt-0.5 tabular-nums ${a >= 0 ? "text-emerald-400" : "text-red-400"}`}>{a >= 0 ? "+" : ""}{a.toFixed(2)}%</p>
+              </div>
+            </div>
+            {leadA && <div className="mt-2 text-[9px] font-black text-emerald-400 flex items-center gap-1"><span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse"/> LEADING</div>}
+          </div>
+
+          <div className="flex flex-col items-center gap-1">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-black text-slate-600"
+              style={{ background: "rgba(30,41,59,.5)", border: "1px solid rgba(255,255,255,.06)" }}>VS</div>
+          </div>
+
+          {/* Token B */}
+          <div className={`rounded-xl border p-3 transition-all ${!leadA ? "border-orange-400/45" : "border-white/8"}`}
+            style={{ background: !leadA ? "rgba(249,115,22,.09)" : "rgba(255,255,255,.02)", boxShadow: !leadA ? "inset 0 0 14px rgba(249,115,22,.06)" : "none" }}>
+            <div className="flex flex-row-reverse items-center gap-2">
+              <TokenLogo symbol={b.token_b} className="h-9 w-9 rounded-full border border-white/15 flex-shrink-0" />
+              <div className="min-w-0 text-right flex-1">
+                <p className="font-black text-white text-sm leading-none truncate">{b.token_b}</p>
+                <p className={`text-xs font-black mt-0.5 tabular-nums ${bv >= 0 ? "text-emerald-400" : "text-red-400"}`}>{bv >= 0 ? "+" : ""}{bv.toFixed(2)}%</p>
+              </div>
+            </div>
+            {!leadA && <div className="mt-2 text-[9px] font-black text-emerald-400 flex items-center justify-end gap-1">LEADING <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse"/></div>}
+          </div>
         </div>
 
-        <div className={`rounded-xl p-2.5 border transition-all ${!aL?'border-orange-500/30':'border-white/5'}`}
-          style={{background:!aL?'rgba(249,115,22,.07)':'rgba(255,255,255,.02)'}}>
-          <div className="flex items-center gap-2 flex-row-reverse">
-            <div className="relative flex-shrink-0">
-              <img src={logo(b.token_b)} alt={b.token_b} className="w-9 h-9 rounded-full border-2" style={{borderColor:!aL?'rgba(249,115,22,.5)':'rgba(255,255,255,.1)'}} onError={e=>{ e.currentTarget.onerror=null; e.currentTarget.src=fallbackLogo(b.token_b); }}/>
-              {!aL&&<div className="absolute -top-1 -left-1 w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-black text-black" style={{background:'#f97316'}}>▲</div>}
-            </div>
-            <div className="text-right">
-              <p className="font-black text-white text-sm leading-none">{b.token_b}</p>
-              <p className={`text-xs font-black mt-0.5 tabular-nums ${chB>=0?'text-emerald-400':'text-red-400'}`}>{chB>=0?'+':''}{chB.toFixed(2)}%</p>
-            </div>
+        {/* Footer */}
+        <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-white/[.04]">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-black text-yellow-300 tabular-nums">{pool.toFixed(3)} <span className="text-[10px] text-orange-400">SOL</span></span>
+            <span className="text-[10px] text-slate-600">👥 {b.players ?? 1}</span>
+          </div>
+          <div className="rounded-xl px-4 py-2 text-xs font-black text-white transition-all group-hover:scale-105"
+            style={{ background: "linear-gradient(135deg,#c2410c,#f97316)", boxShadow: "0 0 14px rgba(249,115,22,.3)" }}>
+            Join ⚔️
           </div>
         </div>
       </div>
-
-      {/* Progress bar */}
-      <div className="mx-3 mb-1 h-[2px] rounded-full overflow-hidden" style={{background:'rgba(30,15,5,.6)'}}>
-        <div className="h-full rounded-full transition-all duration-1000" style={{width:`${pct}%`,background:urgent?G.barUrgent:pct>70?'linear-gradient(90deg,#ef4444,#f97316)':G.barNormal}}/>
-      </div>
-
-      {/* Footer */}
-      <div className="flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2">
-          <span className="font-black text-sm tabular-nums" style={{color:'#fbbf24'}}>{b.prize_pool.toFixed(3)}</span>
-          <span className="text-[9px] font-bold text-amber-700">SOL</span>
-          <span className="text-slate-700 text-[9px]">·</span>
-          <span className="flex items-center gap-1 text-[10px] font-bold" style={{color:'rgba(249,115,22,.8)'}}>
-            <span>👥</span>{b.players}
-          </span>
-        </div>
-        <span className="px-3 py-1.5 rounded-lg text-[11px] font-black text-white transition-all group-hover:scale-105 active:scale-95" style={{background:'linear-gradient(135deg,rgba(234,88,12,.7),rgba(249,115,22,.5))',border:'1px solid rgba(249,115,22,.3)'}}>
-          Join ⚔️
-        </span>
-      </div>
-    </div>
+    </button>
   );
 }
 
-// Assign missing constant after component def
-// accentOrange is now defined directly in G
-
-// ── SKELETON ──────────────────────────────────────────────────────────────────
-function BattleCardSkeleton() {
-  return (
-    <div className="rounded-2xl overflow-hidden border" style={{background:'rgba(10,10,22,.98)',borderColor:'rgba(30,15,5,.6)'}}>
-      <div className="px-4 pt-3 pb-0 flex justify-between">
-        <div className="h-3 w-16 bg-white/5 rounded-full animate-pulse"/>
-        <div className="h-5 w-14 rounded-full animate-pulse" style={{background:'rgba(249,115,22,.1)'}}/>
-      </div>
-      <div className="grid grid-cols-[1fr_auto_1fr] gap-2 px-3 py-3">
-        <div className="h-14 rounded-xl animate-pulse" style={{background:'rgba(249,115,22,.05)'}}/>
-        <div className="w-7 h-7 self-center rounded-full animate-pulse" style={{background:'rgba(249,115,22,.08)'}}/>
-        <div className="h-14 rounded-xl animate-pulse" style={{background:'rgba(249,115,22,.05)'}}/>
-      </div>
-      <div className="px-4 pb-4 flex justify-between">
-        <div className="h-2.5 w-20 bg-white/5 rounded-full animate-pulse"/>
-        <div className="h-2.5 w-14 bg-white/5 rounded-full animate-pulse"/>
-      </div>
-    </div>
-  );
-}
-
-// ── STAT CARD ─────────────────────────────────────────────────────────────────
-function StatCard({ value, label, decimals=0, suffix='' }: { value:number; label:string; decimals?:number; suffix?:string }) {
-  const [display, setDisplay] = useState(0);
-  useEffect(()=>{
-    const start = performance.now();
-    const from = 0;
-    const tick = (now: number) => {
-      const t = Math.min(1,(now-start)/700);
-      const ease = 1-Math.pow(1-t,3);
-      setDisplay(from+(value-from)*ease);
-      if(t<1) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  },[value]);
-  return (
-    <div className="rounded-xl p-3 text-center border" style={{background:'rgba(10,10,22,.98)',borderColor:'rgba(249,115,22,.08)'}}>
-      <p className="font-black text-base tabular-nums leading-none" style={{color:'#fb923c'}}>{display.toFixed(decimals)}{suffix}</p>
-      <p className="text-[9px] mt-1 uppercase tracking-wide" style={{color:'rgba(71,85,105,1)'}}>{label}</p>
-    </div>
-  );
-}
-
-// ── INFRA ROW ─────────────────────────────────────────────────────────────────
-function InfraRow({ label, status, note, pct }: { label:string; status:'online'|'building'|'planned'; note:string; pct?:number }) {
-  const col = status==='online'?'#4ade80':status==='building'?'#f97316':'#475569';
-  const bg  = status==='online'?'rgba(74,222,128,.07)':status==='building'?'rgba(249,115,22,.07)':'rgba(71,85,105,.06)';
-  return (
-    <div className="flex items-center justify-between gap-3 py-2.5 border-b border-white/[.04] last:border-0">
-      <div className="flex items-center gap-2.5 min-w-0">
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${status==='online'?'bg-emerald-400':status==='building'?'animate-pulse':'bg-slate-700'}`} style={{background:status==='building'?'#f97316':undefined}}/>
-        <div className="min-w-0">
-          <div className="text-xs font-bold text-slate-300 truncate">{label}</div>
-          <div className="text-[10px] text-slate-600 truncate">{note}</div>
-        </div>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        {pct!==undefined&&<div className="w-14 h-1 rounded-full overflow-hidden" style={{background:'rgba(255,255,255,.06)'}}><div className="h-full rounded-full" style={{width:`${pct}%`,background:col}}/></div>}
-        <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full" style={{background:bg,color:col}}>{status==='online'?'ONLINE':status==='building'?'BUILDING':'PLANNED'}</span>
-      </div>
-    </div>
-  );
-}
-
-const isActiveBattle = (b: ApiBattle) => {
-  if (b.status !== 'live') return false;
-  if (!b.end_time) return true;
-  return new Date(b.end_time).getTime() > Date.now();
-};
-
-// ── MAIN PAGE ─────────────────────────────────────────────────────────────────
 export default function HomePage() {
   const router = useRouter();
-  const [mounted,        setMounted]        = useState(false);
-  const [battles,        setBattles]        = useState<ApiBattle[]>([]);
-  const [loading,        setLoading]        = useState(true);
-  const [totalVol,       setTotalVol]       = useState(0);
-  const [totalPaid,      setTotalPaid]      = useState(0);
-  const [totalPlayers,   setTotalPlayers]   = useState(0);
-  const [totalBattles,   setTotalBattles]   = useState(0);
+  const [mounted, setMounted] = useState(false);
+  const [battles, setBattles] = useState<Battle[]>([]);
+  const [stats, setStats] = useState<Stats>({});
+  const [statsLoaded, setStatsLoaded] = useState(false);
 
-  const go = useCallback(()=>router.push('/trade'),[router]);
-
-  const fetchBattles = useCallback(async ()=>{
+  const fetchBattles = useCallback(async () => {
     try {
-      const res  = await fetch('/api/battles?status=live&limit=6',{cache:'no-store'});
-      const data = await res.json() as {battles?:ApiBattle[]};
-      const live = (data.battles??[]).filter(isActiveBattle);
-      setBattles(live);
-      // Keep homepage visually synced with /trade. Stats API can lag; live cards are the source for visible players.
-      setTotalPlayers(live.reduce((sum,b)=>sum+(b.players??0),0));
-      setTotalBattles(live.length);
+      const res = await fetch("/api/battles?status=live&limit=6", { cache: "no-store" });
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : Array.isArray(data?.battles) ? data.battles : [];
+      setBattles(list.slice(0, 6));
     } catch {}
-    finally { setLoading(false); }
-  },[]);
+  }, []);
 
-  const fetchStats = useCallback(async ()=>{
+  const fetchStats = useCallback(async () => {
     try {
-      const res  = await fetch('/api/stats',{cache:'no-store'});
-      const data = await res.json() as ApiStats;
-      // Volume / payouts come from stats. Players / active battle count stay synced to live feed.
-      if(data.volSol!==undefined)   setTotalVol(data.volSol);
-      if(data.paidSol!==undefined)  setTotalPaid(data.paidSol);
+      const res = await fetch("/api/stats", { cache: "no-store" });
+      const data = await res.json();
+      setStats(data || {});
+      setStatsLoaded(true);
     } catch {}
-  },[]);
+  }, []);
 
-  useEffect(()=>{
+  useEffect(() => {
     setMounted(true);
-    fetchBattles();
-    fetchStats();
-    const i1=setInterval(fetchBattles,5_000);
-    const i2=setInterval(fetchStats,30_000);
-    return ()=>{ clearInterval(i1); clearInterval(i2); };
-  },[fetchBattles,fetchStats]);
+    fetchBattles(); fetchStats();
+    const a = setInterval(fetchBattles, 5000);
+    const s = setInterval(fetchStats, 30000);
+    return () => { clearInterval(a); clearInterval(s); };
+  }, [fetchBattles, fetchStats]);
 
-  if(!mounted) return (
-    <div className="min-h-screen flex items-center justify-center" style={{background:'#040410'}}>
-      <div className="flex flex-col items-center gap-3">
-        <div className="w-7 h-7 rounded-full border-2 border-t-transparent animate-spin" style={{borderColor:'#f97316',borderTopColor:'transparent'}}/>
-        <span className="text-[9px] tracking-[.25em] uppercase font-mono" style={{color:'rgba(71,85,105,1)'}}>Loading Arena</span>
-      </div>
-    </div>
-  );
+  if (!mounted) return <main className="min-h-screen" style={{ background: "#040410" }} />;
+
+  const liveBattleCount = battles.length;
+  const totalBattleCount = Number(stats.battles || battles.length || 0);
+  const battleCount = liveBattleCount || totalBattleCount;
+  const playerCount = Number(stats.players || 0) || battles.reduce((n, b) => n + Number(b.players || 0), 0);
 
   return (
-    <div className="min-h-screen text-white" style={{background:'#040410'}}>
+    <main className="min-h-screen overflow-x-hidden text-white" style={{ background: "#030208" }}>
+      <style>{`
+        @keyframes hp-timer-blink{0%,100%{opacity:1}50%{opacity:.5}}
+        @keyframes hp-hero-glow{0%{opacity:.5}100%{opacity:.9}}
+        @keyframes hp-line-scan{0%{background-position:0%}100%{background-position:200%}}
+        @keyframes hp-fade-up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes hp-shimmer{0%{background-position:0% 50%}100%{background-position:200% 50%}}
+        *{-webkit-tap-highlight-color:transparent;box-sizing:border-box}
+        html,body{overflow-x:hidden}
+        input,select,textarea{font-size:16px!important}
+        button:active{opacity:.88;transform:scale(.97)}
+      `}</style>
 
-      {/* ── HEADER ─────────────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-50 border-b border-white/[.04] backdrop-blur-xl" style={{background:'rgba(5,3,1,.94)'}}>
-        <div className="max-w-5xl mx-auto px-4 h-11 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 shrink-0">
-            <img src={C.LOGO} alt="MemeRush" className="w-6 h-6 rounded-full object-cover" onError={e=>(e.target as HTMLImageElement).style.display='none'}/>
-            <span className="text-sm font-black bg-clip-text text-transparent" style={{backgroundImage:G.brand}}>MemeRush</span>
-          </div>
-          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full border text-[9px] font-black tracking-[.12em] uppercase" style={{background:'rgba(249,115,22,.06)',borderColor:'rgba(249,115,22,.18)',color:'#fb923c'}}>
-            <span className="relative flex h-1.5 w-1.5 shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60" style={{background:'#f97316'}}/>
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{background:'#f97316'}}/>
-            </span>
-            LIVE · Solana Hybrid MVP
-          </div>
-          <button onClick={go} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-black text-white transition-all hover:opacity-90 active:scale-95 shrink-0 mr-glow-btn" style={{background:G.primary,boxShadow:S.primaryBtnSm}}>
-            ⚔️ ENTER ARENA
+      {/* Background glows */}
+      <div className="pointer-events-none fixed inset-0" style={{
+        background: "radial-gradient(circle at 50% 0%,rgba(249,115,22,.14),transparent 40%),radial-gradient(circle at 100% 60%,rgba(20,184,166,.06),transparent 30%),radial-gradient(circle at 0% 80%,rgba(168,85,247,.05),transparent 28%)",
+      }} />
+
+      {/* ── HEADER ── */}
+      <header className="sticky top-0 z-30 border-b backdrop-blur-xl" style={{
+        background: "rgba(3,2,8,.95)",
+        borderColor: "rgba(249,115,22,.12)",
+        boxShadow: "0 1px 20px rgba(0,0,0,.5)",
+      }}>
+        <div className="h-[1.5px]" style={{ background: "linear-gradient(90deg,transparent,rgba(249,115,22,.55),rgba(251,191,36,.35),transparent)" }} />
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
+          <button onClick={() => router.push("/")} className="flex items-center gap-2.5">
+            <div className="relative">
+              <img src={C.LOGO} className="h-9 w-9 rounded-full border border-orange-500/25 object-cover bg-white"
+                alt="MemeRush" onError={e => (e.currentTarget.src = fallbackLogo("MR"))} />
+              <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-black" />
+            </div>
+            <div>
+              <span className="text-base font-black" style={{
+                background: "linear-gradient(90deg,#f97316,#fbbf24,#f97316)", backgroundSize: "200% 100%",
+                WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", animation: "hp-shimmer 3s linear infinite",
+              }}>MemeRush</span>
+              <p className="text-[9px] text-slate-600 leading-none mt-0.5">Solana Mainnet · PvP Arena</p>
+            </div>
           </button>
+          <div className="flex items-center gap-2">
+            {battleCount > 0 && (
+              <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black"
+                style={{ background: "rgba(249,115,22,.1)", border: "1px solid rgba(249,115,22,.2)", color: "#fb923c" }}>
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />{battleCount} LIVE
+              </div>
+            )}
+            <button onClick={() => router.push("/trade")}
+              className="rounded-xl px-5 py-2.5 text-sm font-black text-white active:scale-95 transition-all"
+              style={{ background: "linear-gradient(135deg,#ea580c,#f97316)", boxShadow: "0 0 20px rgba(249,115,22,.4)" }}>
+              Enter Arena ⚔️
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* ── BAGS ECOSYSTEM BANNER ──────────────────────────────────────────── */}
-      <div className="border-b" style={{background:'rgba(8,4,1,.98)',borderColor:'rgba(249,115,22,.07)'}}>
-        <div className="max-w-5xl mx-auto px-4 py-2 flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-2.5 text-[11px]">
-            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full font-black" style={{background:'rgba(249,115,22,.1)',color:'#fb923c',border:'1px solid rgba(249,115,22,.2)'}}>
-              ⚡ Built for Bags Ecosystem
-            </span>
-            <span style={{color:'rgba(71,85,105,1)'}}>Token launch path + battle trading layer built for Bags</span>
+      <div className="relative mx-auto max-w-5xl px-4 pb-12 pt-4">
+
+        {/* ── HERO ── */}
+        <section className="relative py-12 text-center overflow-hidden">
+          <div className="pointer-events-none absolute inset-0 rounded-3xl" style={{
+            background: "radial-gradient(ellipse 80% 60% at 50% 30%,rgba(249,115,22,.10),transparent)",
+            animation: "hp-hero-glow 4s ease-in-out infinite alternate",
+          }} />
+
+          <div className="mx-auto mb-4 inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs font-black uppercase tracking-[.16em]"
+            style={{ background: "rgba(249,115,22,.08)", border: "1px solid rgba(249,115,22,.22)", color: "#fb923c" }}>
+            <span className="h-2 w-2 animate-ping rounded-full bg-orange-500 inline-block" />
+            {liveBattleCount ? `${liveBattleCount} Live Battles` : "Live MVP on Solana"}
           </div>
-          <div className="flex items-center gap-3">
-            {[
-              {dot:'#f97316', label:'Battle engine running'},
-              {dot:'#fbbf24', label:'Hybrid mainnet settlement active'},
-              {dot:'#4ade80', label:'Actively shipping'},
-            ].map(b=>(
-              <span key={b.label} className="hidden sm:flex items-center gap-1 text-[9px] font-medium" style={{color:'rgba(100,116,139,1)'}}>
-                <span className="w-1.5 h-1.5 rounded-full shrink-0 animate-pulse" style={{background:b.dot}}/>
-                {b.label}
+
+          <p className="text-xs font-black uppercase tracking-[.22em] text-slate-500 mb-3">Realtime PvP Meme Trading Arena</p>
+
+          <h1 className="text-4xl font-black leading-[.95] tracking-tight sm:text-6xl">
+            <span style={{ background: "linear-gradient(90deg,#f97316,#fbbf24)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+              Pick a side.
+            </span>
+            <br />
+            <span className="text-white">Beat the timer.</span>
+            <br />
+            <span className="text-white">Claim the pool.</span>
+          </h1>
+
+          <p className="mx-auto mt-5 max-w-md text-base font-semibold leading-relaxed text-slate-400">
+            A live PvP meme coin arena on Solana. Start from{" "}
+            <span className="text-white font-bold">{C.MIN_SOL} SOL ({C.MIN_USD})</span>,
+            pick a token side, and let verified price movement decide the winner.
+          </p>
+
+          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+            <button onClick={() => router.push("/trade")}
+              className="rounded-2xl px-8 py-4 text-lg font-black text-white active:scale-95 transition-all"
+              style={{ background: "linear-gradient(135deg,#ea580c,#f97316)", boxShadow: "0 0 40px rgba(249,115,22,.50)", animation: "hp-cta-breathe 2.4s ease-in-out infinite" }}>
+              ⚔️ Enter Arena
+            </button>
+            <button onClick={() => router.push("/demo")}
+              className="rounded-2xl border px-8 py-4 text-lg font-black text-emerald-300 active:scale-95 transition-all"
+              style={{ background: "rgba(16,185,129,.08)", border: "1px solid rgba(16,185,129,.25)", boxShadow: "0 0 20px rgba(16,185,129,.12)" }}>
+              🧪 Try Demo
+            </button>
+          </div>
+          <p className="mt-4 text-sm font-semibold text-slate-700">
+            No signup · No KYC · Wallet identity · Demo available before deposit
+          </p>
+        </section>
+
+        {/* ── STATS ── */}
+        <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            { v: statsLoaded ? Number(stats.paidSol ?? 0).toFixed(2) : "—", l: "SOL Paid", c: "#4ade80", bg: "rgba(34,197,94,.07)", border: "rgba(34,197,94,.14)" },
+            { v: statsLoaded ? Number(stats.volSol ?? 0).toFixed(1) : "—", l: "SOL Volume", c: "#fbbf24", bg: "rgba(250,204,21,.07)", border: "rgba(250,204,21,.12)" },
+            { v: statsLoaded ? String(totalBattleCount || liveBattleCount) : "—", l: "Battles", c: "#f97316", bg: "rgba(249,115,22,.07)", border: "rgba(249,115,22,.14)" },
+            { v: statsLoaded ? String(playerCount || "—") : "—", l: "Players", c: "#67e8f9", bg: "rgba(103,232,249,.06)", border: "rgba(103,232,249,.12)" },
+          ].map(s => (
+            <div key={s.l} className="rounded-2xl border p-4 text-center transition-all"
+              style={{ background: s.bg, borderColor: s.border, boxShadow: statsLoaded ? `0 0 14px ${s.bg}` : "none" }}>
+              <div className="text-2xl font-black tabular-nums" style={{ color: s.c }}>{s.v}</div>
+              <div className="mt-1 text-[10px] font-bold uppercase tracking-widest text-slate-600">{s.l}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── DEMO BANNER ── */}
+        <div className="mb-8 rounded-2xl border p-5 overflow-hidden relative"
+          style={{ background: "rgba(3,22,13,.85)", border: "1px solid rgba(16,185,129,.18)", boxShadow: "0 0 28px rgba(16,185,129,.07)" }}>
+          <div className="pointer-events-none absolute top-0 right-0 h-32 w-32 rounded-full blur-3xl opacity-30"
+            style={{ background: "rgba(16,185,129,.4)" }} />
+          <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <span className="inline-flex rounded-full border border-emerald-400/22 bg-emerald-400/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-emerald-300 mb-3">
+                ✅ Free Demo Mode
               </span>
-            ))}
+              <h2 className="text-lg font-black text-white">Try the battle loop before depositing.</h2>
+              <p className="mt-1 text-sm text-slate-500 max-w-xs">No wallet, no payment. Same battle flow — perfect for first-time users and hackathon judges.</p>
+            </div>
+            <button onClick={() => router.push("/demo")}
+              className="flex-shrink-0 rounded-2xl border border-emerald-400/25 bg-emerald-500/10 px-6 py-3 font-black text-emerald-300 active:scale-95 transition-all whitespace-nowrap"
+              style={{ boxShadow: "0 0 16px rgba(16,185,129,.15)" }}>
+              Open Demo →
+            </button>
           </div>
         </div>
-      </div>
 
-      <main className="max-w-5xl mx-auto px-4 pt-8 pb-28 space-y-8">
-
-        {/* ── HERO ───────────────────────────────────────────────────────────── */}
-        <section className="relative py-14 px-6 text-center overflow-hidden">
-          <div className="absolute inset-0 pointer-events-none">
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] rounded-full blur-[120px] opacity-[.18]"
-              style={{background:'radial-gradient(ellipse,#ea580c 0%,#f97316 40%,transparent 80%)'}}/>
-          </div>
-          <div className="relative z-10 max-w-xl mx-auto">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[10px] font-black mb-6" style={{background:'rgba(249,115,22,.08)',borderColor:'rgba(249,115,22,.2)',color:'#f97316'}}>
-              <span className="relative flex h-1.5 w-1.5 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60" style={{background:'#f97316'}}/>
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{background:'#f97316'}}/>
-              </span>
-              {battles.length>0?`${battles.length} LIVE BATTLES NOW`:'LIVE ON SOLANA MAINNET'}
-            </div>
-            <h1 className="text-[clamp(28px,7vw,52px)] font-black leading-[1.04] tracking-tight mb-4">
-              <span className="bg-clip-text text-transparent" style={{backgroundImage:G.brand}}>Pick a Side.</span>
-              <br/>
-              <span className="text-white">Claim the Pool.</span>
-            </h1>
-            <p className="text-[13px] mb-8 leading-relaxed" style={{color:'rgba(100,116,139,1)'}}>
-              Every battle has one winner. Join from{' '}
-              <span className="text-white font-semibold">{C.MIN_SOL} SOL ({C.MIN_USD})</span>
-              {' '}— battle results update live on Solana mainnet.
-            </p>
-            <button onClick={go} className="inline-flex items-center gap-3 px-12 py-4 rounded-2xl text-lg font-black text-white transition-all hover:scale-[1.04] active:scale-95 mr-glow-btn"
-              style={{background:G.primary,boxShadow:S.primaryBtn}}>
-              ⚔️ ENTER ARENA
-            </button>
-            <p className="text-[11px] mt-4" style={{color:'rgba(71,85,105,1)'}}>No signup · No KYC · Wallet = identity</p>
-            <p className="text-[11px] mt-1.5" style={{color:'rgba(100,116,139,.6)'}}>Live MVP · hybrid treasury settlement · early users testing</p>
-            {/* Bags ecosystem signal */}
-            <div className="inline-flex items-center gap-1.5 mt-4 px-3 py-1.5 rounded-full border text-[10px] font-bold" style={{background:'rgba(249,115,22,.05)',borderColor:'rgba(249,115,22,.15)',color:'rgba(251,146,60,.7)'}}>
-              ⚡ Bags ecosystem · MRUSH token launching via Bags
-            </div>
-            {/* Social icons under CTA */}
-            <div className="flex items-center justify-center gap-3 mt-5">
-              {[
-                {label:'𝕏',       href:C.TWITTER,  bg:'rgba(255,255,255,.06)', border:'rgba(255,255,255,.1)'},
-                {label:'TG',      href:C.TELEGRAM, bg:'rgba(8,145,178,.09)',   border:'rgba(8,145,178,.22)'},
-                {label:'Discord', href:C.DISCORD,  bg:'rgba(88,101,242,.09)',  border:'rgba(88,101,242,.22)'},
-              ].map(l=>(
-                <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
-                  className="w-9 h-9 rounded-full border flex items-center justify-center text-[11px] font-black text-white hover:scale-110 transition-all"
-                  style={{background:l.bg,borderColor:l.border}}>{l.label}</a>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* ── VISION ────────────────────────────────────────────────────────── */}
-        <section className="text-center px-4">
-          <p className="text-[13px] leading-relaxed max-w-lg mx-auto" style={{color:'rgba(148,163,184,.7)'}}>
-            Competitive trading should feel live, social, and verifiable.
-          </p>
-          <p className="text-[13px] font-semibold mt-1" style={{color:'rgba(251,146,60,.65)'}}>
-            MemeRush turns memecoin moves into PvP battles.
-          </p>
-        </section>
-
-        {/* ── TICKER BAR ───────────────────────────────────────────────────── */}
-        <section>
-          <div className="rounded-xl border px-4 py-2.5 flex items-center gap-3 overflow-x-auto scrollbar-none" style={{background:'rgba(8,4,2,.97)',borderColor:'rgba(249,115,22,.08)'}}>
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-50" style={{background:'#f97316'}}/>
-                <span className="relative inline-flex rounded-full h-2 w-2" style={{background:'#f97316'}}/>
-              </span>
-              <span className="text-[9px] font-black tracking-[.18em] uppercase" style={{color:'#fb923c'}}>Live</span>
-            </div>
-            <div className="w-px h-4 shrink-0" style={{background:'rgba(249,115,22,.12)'}}/>
-            <div className="flex items-center gap-4 text-[11px] font-bold whitespace-nowrap">
-              <span style={{color:'#f97316'}}>{battles.length} Battles</span>
-              <span style={{color:'#fbbf24'}}>{totalVol.toFixed(1)} SOL Vol</span>
-              <span style={{color:'#fb923c'}}>{totalPlayers} Players</span>
-              <span style={{color:'rgba(100,116,139,.8)'}}>Hybrid Mainnet</span>
-            </div>
-            <div className="ml-auto shrink-0 flex items-center gap-1.5 text-[10px] font-mono" style={{color:'rgba(71,85,105,1)'}}>
-              <span className="w-1.5 h-1.5 rounded-full" style={{background:'#f97316'}}/>
-              Synced
-            </div>
-          </div>
-        </section>
-
-        {/* ── STAT COUNTERS ─────────────────────────────────────────────────── */}
-        <section className="grid grid-cols-4 gap-3">
-          <StatCard value={totalPaid}    label="Total Paid"  decimals={2} suffix=" SOL"/>
-          <StatCard value={totalVol}     label="Volume"      decimals={1} suffix=" SOL"/>
-          <StatCard value={totalBattles} label="Battles"/>
-          <StatCard value={totalPlayers} label="Players"/>
-        </section>
-
-        {/* ── LIVE BATTLE FEED ──────────────────────────────────────────────── */}
-        <section>
+        {/* ── LIVE BATTLE FEED ── */}
+        <section className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <span className="relative flex h-2 w-2 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-50" style={{background:'#f97316'}}/>
-                <span className="relative inline-flex rounded-full h-2 w-2" style={{background:'#f97316'}}/>
+              <span className="relative flex w-3 h-3">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-orange-500 opacity-55 animate-ping" />
+                <span className="relative inline-flex w-3 h-3 rounded-full bg-orange-500" />
               </span>
-              <span className="text-[9px] font-black tracking-[.16em] uppercase" style={{color:'#fb923c'}}>Live Battle Feed</span>
-              {!loading&&battles.length>0&&(
-                <span className="text-[9px] font-black px-2 py-0.5 rounded-full" style={{background:'rgba(249,115,22,.1)',color:'#f97316',border:'1px solid rgba(249,115,22,.2)'}}>
-                  {battles.length} active
-                </span>
+              <h2 className="text-sm font-black uppercase tracking-[.2em] text-orange-300">Live Battle Feed</h2>
+              {liveBattleCount > 0 && (
+                <span className="text-[10px] font-bold text-slate-600">{liveBattleCount} active</span>
               )}
             </div>
-            <button onClick={go} className="text-[11px] font-medium transition-colors hover:text-orange-400" style={{color:'rgba(71,85,105,1)'}}>
+            <button onClick={() => router.push("/trade")}
+              className="text-sm font-bold text-slate-500 hover:text-orange-400 transition-colors">
               View all →
             </button>
           </div>
-
-          {loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              <BattleCardSkeleton/><BattleCardSkeleton/><BattleCardSkeleton/>
-            </div>
-          ) : battles.length>0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {battles.slice(0,6).map(b=><BattleCard key={b.id} b={b} go={go}/>)}
-            </div>
-          ) : (
-            <div className="rounded-2xl border py-12 text-center" style={{background:'rgba(10,10,22,.98)',borderColor:'rgba(249,115,22,.08)'}}>
-              <div className="relative mx-auto w-10 h-10 mb-4">
-                <div className="absolute inset-0 rounded-full border-2 animate-ping" style={{borderColor:'rgba(249,115,22,.3)'}}/>
-                <div className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin" style={{borderColor:'#f97316',borderTopColor:'transparent'}}/>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(battles.length ? battles : Array.from({ length: 4 }).map((_, i) => ({
+              id: String(i), token_a: ["BONK","PEPE","MRUSH","BOME"][i], token_b: ["WIF","SOL","POPCAT","MYRO"][i],
+              prize_pool: 0.001 + i * 0.002, players: i + 1,
+              end_time: new Date(Date.now() + (i + 2) * 70000).toISOString(),
+            }))).map((b, i) => (
+              <div key={b.id} style={{ animation: `hp-fade-up .25s ease-out ${i * 0.04}s both` }}>
+                <MiniBattle b={b} onJoin={() => router.push(`/trade?battle=${b.id}`)} />
               </div>
-              <p className="text-sm font-black text-white mb-1">🔥 Spawning battles…</p>
-              <p className="text-xs mb-5" style={{color:'rgba(71,85,105,1)'}}>System generates battles automatically</p>
-              <button onClick={go} className="px-6 py-3 rounded-xl text-sm font-black text-white active:scale-95" style={{background:G.primary}}>Check Arena →</button>
-            </div>
-          )}
-        </section>
-
-        {/* ── CTA BLOCK ────────────────────────────────────────────────────── */}
-        <section className="relative rounded-2xl border overflow-hidden" style={{background:'linear-gradient(135deg,rgba(120,53,15,.2),rgba(9,9,24,.98))',borderColor:'rgba(249,115,22,.15)'}}>
-          <div className="absolute top-0 inset-x-0 h-px" style={{background:'linear-gradient(90deg,transparent,rgba(249,115,22,.5),transparent)'}}/>
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-5 px-7 py-6">
-            <div>
-              <p className="text-[9px] font-black tracking-[.16em] uppercase mb-2" style={{color:'#f97316'}}>Minimum Entry</p>
-              <div className="text-[34px] font-black text-white leading-none tracking-tight mb-2">
-                {C.MIN_SOL} <span className="text-xl font-bold" style={{color:'rgba(148,163,184,1)'}}>SOL</span>
-                <span className="text-sm font-semibold ml-2" style={{color:'rgba(71,85,105,1)'}}>{C.MIN_USD}</span>
-              </div>
-              <p className="text-[11px]" style={{color:'rgba(71,85,105,1)'}}>No registration · No verification · Winner takes pool minus 2%</p>
-            </div>
-            {/* Badge instead of duplicate button */}
-            <div className="flex flex-col items-center gap-2 shrink-0">
-              <div className="px-4 py-2.5 rounded-full border text-[11px] font-black text-center" style={{background:'rgba(249,115,22,.08)',borderColor:'rgba(249,115,22,.25)',color:'#fb923c'}}>
-                Solana Mainnet • Hybrid MVP
-              </div>
-              <a href={`https://solscan.io/account/${C.TREASURY}`} target="_blank" rel="noopener noreferrer" className="text-[10px] font-mono hover:text-orange-400 transition-colors" style={{color:'rgba(71,85,105,1)'}}>
-                {C.TREASURY.slice(0,6)}…{C.TREASURY.slice(-4)} ↗
-              </a>
-            </div>
+            ))}
           </div>
         </section>
 
-        {/* ── STATUS ──────────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <section className="rounded-2xl border p-5" style={{background:'rgba(8,4,2,.97)',borderColor:'rgba(249,115,22,.06)'}}>
-            <div className="flex items-center gap-2 mb-3">
-              <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{background:'#f97316'}}/>
-              <span className="text-[9px] font-black tracking-[.16em] uppercase" style={{color:'rgba(71,85,105,1)'}}>Infrastructure</span>
+        {/* ── TRUST + STATUS ── */}
+        <div className="grid gap-4 sm:grid-cols-2 mb-8">
+          {/* Trust */}
+          <div className="rounded-2xl border overflow-hidden"
+            style={{ background: "rgba(6,6,18,.96)", border: "1px solid rgba(255,255,255,.06)" }}>
+            <div className="px-4 py-3 border-b" style={{ borderColor: "rgba(255,255,255,.05)", background: "rgba(15,15,30,.5)" }}>
+              <p className="text-[10px] font-black uppercase tracking-[.2em] text-orange-400">Why users can trust the battle</p>
             </div>
-            <div>
-              <InfraRow label="Battle Engine"   status="online"   note="Auto-generating · 24/7"/>
-              <InfraRow label="Treasury Wallet" status="online"   note="Public · Solscan verified"/>
-              <InfraRow label="Supabase DB"     status="online"   note="Realtime battle state"/>
-              <InfraRow label="Settlement Route" status="online"   note="Payout route active"/>
-              <InfraRow label="Mainnet Live"    status="building" note="Active · Final polish" pct={93}/>
-            </div>
-          </section>
-
-          <section className="rounded-2xl border p-5" style={{background:'rgba(8,4,2,.97)',borderColor:'rgba(249,115,22,.06)'}}>
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{background:'#f97316'}}/>
-              <span className="text-[9px] font-black tracking-[.16em] uppercase" style={{color:'rgba(71,85,105,1)'}}>Build Progress</span>
-            </div>
-            <div className="space-y-4">
+            <div className="p-4 space-y-3">
               {[
-                {label:'Devnet Testing',      pct:100, s:'done'     as const, note:'✓ Completed'},
-                {label:'Hybrid Mainnet', pct:93,  s:'building' as const, note:'93% · Active'},
-                {label:'Public Launch',       pct:25,  s:'building' as const, note:'Soon'},
-                {label:'Voting / Staking',    pct:0,   s:'planned'  as const, note:'Planned'},
-              ].map(r=>{
-                const col=r.s==='done'?'#4ade80':r.s==='building'?'#f97316':'#374151';
-                return (
-                  <div key={r.label}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{background:col}}/>
-                        <span className="text-xs font-bold text-slate-300">{r.label}</span>
-                      </div>
-                      <span className="text-[10px] font-black shrink-0 ml-2" style={{color:col}}>{r.note}</span>
-                    </div>
-                    <div className="h-0.5 rounded-full overflow-hidden" style={{background:'rgba(255,255,255,.05)'}}>
-                      <div className="h-full rounded-full" style={{width:`${r.pct}%`,background:col,transition:'width .6s ease'}}/>
-                    </div>
+                ["🔗", "Treasury visible", "Real entries route through a public Solana treasury wallet for easier verification."],
+                ["📊", "Clear winner logic", "Each battle compares token percentage movement from battle start to finish."],
+                ["🔐", "Wallet-first flow", "Users keep custody and sign their own actions. Demo stays separate from real entries."],
+              ].map(([e, t, d]) => (
+                <div key={t} className="flex gap-3 p-3 rounded-xl border border-white/[.05]"
+                  style={{ background: "rgba(255,255,255,.02)" }}>
+                  <span className="text-xl flex-shrink-0">{e}</span>
+                  <div>
+                    <h3 className="font-black text-white text-sm">{t}</h3>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">{d}</p>
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
-            <div className="mt-5 pt-4 border-t border-white/[.04]">
-              <a href={`https://solscan.io/account/${C.TREASURY}`} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between group text-xs">
-                <span style={{color:'rgba(71,85,105,1)'}}>Treasury wallet (public)</span>
-                <span className="font-mono text-[11px] group-hover:text-orange-400 transition-colors truncate ml-2 max-w-[180px]" style={{color:'rgba(100,116,139,1)'}}>{C.TREASURY.slice(0,8)}...{C.TREASURY.slice(-6)} →</span>
-              </a>
+          </div>
+
+          {/* Launch Status */}
+          <div className="rounded-2xl border overflow-hidden"
+            style={{ background: "rgba(6,6,18,.96)", border: "1px solid rgba(255,255,255,.06)" }}>
+            <div className="px-4 py-3 border-b" style={{ borderColor: "rgba(255,255,255,.05)", background: "rgba(15,15,30,.5)" }}>
+              <p className="text-[10px] font-black uppercase tracking-[.2em] text-orange-400">Launch status</p>
             </div>
-          </section>
+            <div className="p-4 space-y-3">
+              {[
+                { t: "Battle Engine", d: "Live MVP battle feed", s: "Online", c: "emerald" },
+                { t: "Treasury Wallet", d: short(C.TREASURY), s: "Public", c: "emerald" },
+                { t: "Hybrid Mainnet", d: "MVP live while full mainnet polish continues", s: "Active", c: "orange" },
+                { t: "MRUSH Token", d: "Rewards, fees, and perks planned", s: "Soon", c: "slate" },
+              ].map(item => (
+                <div key={item.t} className="flex items-center justify-between py-2 border-b border-white/[.04] last:border-0">
+                  <div>
+                    <h3 className="font-black text-white text-sm">{item.t}</h3>
+                    <p className="text-[11px] text-slate-500 truncate max-w-[180px]">{item.d}</p>
+                  </div>
+                  <span className={`rounded-full px-3 py-1 text-xs font-black flex-shrink-0 ${
+                    item.c === "emerald" ? "bg-emerald-500/10 text-emerald-300 border border-emerald-500/20" :
+                    item.c === "orange" ? "bg-orange-500/10 text-orange-300 border border-orange-500/20" :
+                    "bg-slate-500/10 text-slate-500 border border-slate-500/15"
+                  }`}>{item.s}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* ── WHY MEMEРUSH IS FAIR ─────────────────────────────────────────── */}
-        <section className="rounded-2xl border p-6" style={{background:'rgba(8,4,2,.97)',borderColor:'rgba(249,115,22,.1)'}}>
-          <div className="flex items-center gap-2 mb-5">
-            <span className="text-[9px] font-black tracking-[.16em] uppercase" style={{color:'rgba(71,85,105,1)'}}>Why MemeRush is Fair</span>
+        {/* ── HOW IT WORKS ── */}
+        <div className="mb-8 rounded-2xl border overflow-hidden"
+          style={{ background: "rgba(6,6,18,.96)", border: "1px solid rgba(255,255,255,.06)" }}>
+          <div className="px-4 py-3 border-b" style={{ borderColor: "rgba(255,255,255,.05)", background: "rgba(15,15,30,.5)" }}>
+            <p className="text-[10px] font-black uppercase tracking-[.2em] text-orange-400">How it works</p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y divide-white/[.04] sm:divide-y-0">
             {[
-              {icon:'🔗', title:'On-Chain Settlement',   desc:'Battle activity is tracked on Solana with a public treasury wallet for transparent settlement review.'},
-              {icon:'🔐', title:'Wallet-First Flow',            desc:'Users connect their own wallet and sign actions. The treasury wallet is public for auditability.'},
-              {icon:'📊', title:'Transparent Logic',     desc:'Winners are based on live battle price movement from start to finish, with clear percentage comparison.'},
-              {icon:'💸', title:'Public Treasury',       desc:'Platform fees flow through a public treasury wallet. Anyone can inspect activity on Solscan.'},
-            ].map(f=>(
-              <div key={f.title} className="flex gap-3 p-3.5 rounded-xl border" style={{background:'rgba(255,255,255,.02)',borderColor:'rgba(249,115,22,.07)'}}>
-                <span className="text-xl shrink-0 mt-0.5">{f.icon}</span>
-                <div>
-                  <p className="text-xs font-black text-white mb-1">{f.title}</p>
-                  <p className="text-[11px] leading-relaxed" style={{color:'rgba(100,116,139,1)'}}>{f.desc}</p>
+              { n: "01", t: "Connect Wallet", e: "🔗", d: "Phantom, Solflare, or Mobile Wallet" },
+              { n: "02", t: "Join Battle", e: "⚔️", d: "Pick your token side and entry amount" },
+              { n: "03", t: "Token Race", e: "📈", d: "Realtime % movement tracked on-chain" },
+              { n: "04", t: "Winner Paid", e: "💸", d: "Pool routed to winner wallet on-chain" },
+            ].map((s, i) => (
+              <div key={s.n} className="p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xl">{s.e}</span>
+                  <span className="text-[10px] font-black text-slate-700">{s.n}</span>
                 </div>
+                <h3 className="font-black text-white text-sm">{s.t}</h3>
+                <p className="mt-1 text-[11px] text-slate-600 leading-snug">{s.d}</p>
               </div>
             ))}
           </div>
-          <a href={`https://solscan.io/account/${C.TREASURY}`} target="_blank" rel="noopener noreferrer"
-            className="flex items-center justify-between mt-4 px-4 py-3 rounded-xl border hover:border-orange-500/30 transition-colors group"
-            style={{background:'rgba(249,115,22,.04)',borderColor:'rgba(249,115,22,.1)'}}>
+        </div>
+
+        {/* ── FOOTER ── */}
+        <footer className="border-t border-orange-500/10 pt-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black" style={{color:'#f97316'}}>💸 Public Treasury Wallet</span>
-              <span className="text-[9px]" style={{color:'rgba(71,85,105,1)'}}>· All fees visible on Solscan</span>
+              <img src={C.LOGO} className="h-7 w-7 rounded-full bg-white object-cover" alt="MemeRush"
+                onError={e => (e.currentTarget.src = fallbackLogo("MR"))} />
+              <span className="font-black text-orange-300">MemeRush</span>
+              <span className="text-sm text-slate-700">· Solana Mainnet · 2026</span>
             </div>
-            <span className="font-mono text-[10px] group-hover:text-orange-400 transition-colors" style={{color:'rgba(71,85,105,1)'}}>
-              {C.TREASURY.slice(0,8)}…{C.TREASURY.slice(-6)} →
-            </span>
-          </a>
-        </section>
-
-        {/* ── WHY BAGS ─────────────────────────────────────────────────────── */}
-        <section className="rounded-2xl border p-6" style={{background:'rgba(8,4,2,.97)',borderColor:'rgba(249,115,22,.12)'}}>
-          <div className="flex items-center gap-2.5 mb-4">
-            <span className="text-[9px] font-black tracking-[.16em] uppercase" style={{color:'rgba(71,85,105,1)'}}>Why Bags?</span>
-            <span className="px-2 py-0.5 rounded-full text-[8px] font-black" style={{background:'rgba(249,115,22,.1)',color:'#f97316',border:'1px solid rgba(249,115,22,.2)'}}>Ecosystem Partner</span>
-          </div>
-          <div className="space-y-3">
-            {[
-              {icon:'🚀', title:'Seamless Token Launch',      desc:'MRUSH is planned to launch via Bags — aligned distribution for the battle community.'},
-              {icon:'⚡', title:'Integrated Trading Layer',   desc:'MemeRush is designed to plug into the Bags ecosystem with fast, game-based trading loops.'},
-              {icon:'📈', title:'Scalable for Gamified Markets', desc:'Designed for high-frequency, game-based trading markets — exactly what MemeRush generates.'},
-            ].map(r=>(
-              <div key={r.title} className="flex gap-3 items-start py-3 border-b last:border-0" style={{borderColor:'rgba(249,115,22,.06)'}}>
-                <span className="text-lg shrink-0 mt-0.5">{r.icon}</span>
-                <div>
-                  <p className="text-xs font-black text-white mb-0.5">{r.title}</p>
-                  <p className="text-[11px] leading-relaxed" style={{color:'rgba(100,116,139,1)'}}>{r.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ── RUSHTRADE SYSTEM ─────────────────────────────────────────────── */}
-        <section className="rounded-2xl border p-6 relative overflow-hidden" style={{background:'rgba(8,4,2,.97)',borderColor:'rgba(249,115,22,.1)'}}>
-          <div className="absolute top-0 right-0 w-32 h-32 rounded-full blur-[60px] opacity-[.06] pointer-events-none" style={{background:'#f97316'}}/>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[9px] font-black tracking-[.16em] uppercase" style={{color:'rgba(71,85,105,1)'}}>RushTrade</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[8px] font-black" style={{background:'rgba(249,115,22,.15)',color:'#f97316',border:'1px solid rgba(249,115,22,.25)'}}>POINTS SYSTEM</span>
-          </div>
-          <h3 className="text-base font-black text-white mb-1">Trade During Live Battles. Earn Points.</h3>
-          <p className="text-[12px] mb-4" style={{color:'rgba(100,116,139,1)'}}>RushTrade is only available to active battle participants — no farming without skin in the game.</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {[
-              {icon:'⚔️', title:'Battle First',         desc:'Join any live battle with SOL to unlock RushTrade access for that round.'},
-              {icon:'📈', title:'Trade & Earn Points',   desc:'Buy/sell during the live battle window. Active traders accumulate points.'},
-              {icon:'🪙', title:'Points → $MRUSH',       desc:'Accumulated points convert to $MRUSH token rewards after each season.'},
-              {icon:'🛡️', title:'Anti-Farm Protection',  desc:'Points are only granted to wallets actively joined in a battle. No free rides.'},
-            ].map(f=>(
-              <div key={f.title} className="flex gap-3 p-3 rounded-xl border" style={{background:'rgba(255,255,255,.02)',borderColor:'rgba(249,115,22,.07)'}}>
-                <span className="text-lg shrink-0 mt-0.5">{f.icon}</span>
-                <div>
-                  <p className="text-xs font-black text-white mb-0.5">{f.title}</p>
-                  <p className="text-[11px] leading-relaxed" style={{color:'rgba(100,116,139,1)'}}>{f.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ── $MRUSH TOKEN UTILITY ─────────────────────────────────────────── */}
-        <section className="rounded-2xl border p-6 relative overflow-hidden" style={{background:'linear-gradient(135deg,rgba(12,6,2,.98),rgba(8,4,1,.98))',borderColor:'rgba(249,115,22,.12)'}}>
-          <div className="absolute top-0 inset-x-0 h-px" style={{background:'linear-gradient(90deg,transparent,rgba(249,115,22,.4),transparent)'}}/>
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[9px] font-black tracking-[.16em] uppercase" style={{color:'rgba(71,85,105,1)'}}>$MRUSH Token</span>
-                <span className="px-1.5 py-0.5 rounded-full text-[8px] font-black" style={{background:'rgba(251,191,36,.1)',color:'#fbbf24',border:'1px solid rgba(251,191,36,.2)'}}>COMING SOON</span>
-              </div>
-              <h3 className="text-base font-black text-white">Core Utility Token for MemeRush</h3>
-              <p className="text-[11px] mt-1 mb-1 font-semibold" style={{color:'rgba(203,213,225,.8)'}}>
-                MRUSH is planned to power battle perks, rewards, and fee discounts in the MemeRush ecosystem.
-              </p>
-              <p className="text-[11px] flex items-center gap-1.5" style={{color:'rgba(100,116,139,1)'}}>
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-black" style={{background:'rgba(249,115,22,.1)',color:'#fb923c',border:'1px solid rgba(249,115,22,.2)'}}>⚡ Bags</span>
-                Planned Bags launch · battle rewards and fee perks powered by MRUSH
-              </p>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2.5">
-            {[
-              {icon:'⚔️', t:'Battle Entry',   d:'Pay entry with SOL now; MRUSH support planned'},
-              {icon:'💹', t:'RushTrade Fees', d:'Future fee perks for MRUSH holders'},
-              {icon:'🎁', t:'Earn Rewards',   d:'Incentives for active players'},
-              {icon:'🔒', t:'Staking',        d:'Planned staking utility'},
-            ].map(u=>(
-              <div key={u.t} className="p-3 rounded-xl border" style={{background:'rgba(249,115,22,.04)',borderColor:'rgba(249,115,22,.08)'}}>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-base">{u.icon}</span>
-                  <p className="text-xs font-black text-white">{u.t}</p>
-                </div>
-                <p className="text-[10px]" style={{color:'rgba(100,116,139,1)'}}>{u.d}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ── HOW IT WORKS ─────────────────────────────────────────────────── */}
-        <section className="rounded-2xl border p-6" style={{background:'rgba(8,4,2,.97)',borderColor:'rgba(249,115,22,.06)'}}>
-          <p className="text-[9px] font-black tracking-[.16em] uppercase mb-5" style={{color:'rgba(71,85,105,1)'}}>How It Works</p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-5">
-            {[
-              {n:'01',title:'Connect Wallet',desc:'Phantom, Solflare, any Solana wallet',icon:'🔗'},
-              {n:'02',title:'Join a Battle',  desc:'Pick Token A or B from live battles',icon:'⚔️'},
-              {n:'03',title:'Token Races',    desc:'Performance % compared live',        icon:'📊'},
-              {n:'04',title:'Winner Paid',    desc:'Higher % gain wins. Auto on-chain',  icon:'🏆'},
-            ].map(s=>(
-              <div key={s.n} className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-black font-mono" style={{color:'rgba(71,85,105,.6)'}}>{s.n}</span>
-                  <span style={{fontSize:'14px'}}>{s.icon}</span>
-                </div>
-                <p className="text-xs font-black text-white">{s.title}</p>
-                <p className="text-[11px] leading-relaxed" style={{color:'rgba(71,85,105,1)'}}>{s.desc}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ── COMMUNITY ─────────────────────────────────────────────────────── */}
-        <section className="flex flex-wrap gap-3 justify-center">
-          {[
-            {label:'𝕏 Twitter', href:C.TWITTER,  bg:'rgba(255,255,255,.06)', border:'rgba(255,255,255,.12)', color:'white'},
-            {label:'Telegram',  href:C.TELEGRAM, bg:'rgba(8,145,178,.08)',   border:'rgba(8,145,178,.2)',   color:'#38bdf8'},
-            {label:'Discord',   href:C.DISCORD,  bg:'rgba(88,101,242,.08)',  border:'rgba(88,101,242,.2)',  color:'#818cf8'},
-          ].map(l=>(
-            <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
-              className="flex items-center gap-2 px-5 py-3 rounded-xl border text-xs font-bold transition-all hover:scale-105 active:scale-95"
-              style={{background:l.bg,borderColor:l.border,color:l.color}}>
-              {l.label}
-            </a>
-          ))}
-        </section>
-
-      </main>
-
-      {/* ── FOOTER ─────────────────────────────────────────────────────────── */}
-      <footer className="border-t py-6 backdrop-blur-sm" style={{background:'rgba(5,3,1,.97)',borderColor:'rgba(249,115,22,.06)'}}>
-        <div className="max-w-5xl mx-auto px-4">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-4">
-            <div className="flex items-center gap-2">
-              <img src={C.LOGO} alt="MemeRush" className="w-5 h-5 rounded-full object-cover" onError={e=>(e.target as HTMLImageElement).style.display='none'}/>
-              <span className="font-black text-xs bg-clip-text text-transparent" style={{backgroundImage:G.brand}}>MemeRush</span>
-              <span className="text-[11px]" style={{color:'rgba(71,85,105,1)'}}>· Solana Mainnet · 2026</span>
-            </div>
-            <div className="flex items-center gap-1.5 flex-wrap justify-center">
-              <button onClick={go} className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-white" style={{background:G.primarySoft}}>⚔️ Arena</button>
+            <div className="flex flex-wrap gap-2">
               {[
-                {label:'Treasury',href:`https://solscan.io/account/${C.TREASURY}`},
-                {label:'𝕏',href:C.TWITTER},
-                {label:'Telegram',href:C.TELEGRAM},
-                {label:'Discord',href:C.DISCORD},
-              ].map(l=>(
-                <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 rounded-lg text-[11px] border hover:text-slate-300 transition-colors" style={{color:'rgba(71,85,105,1)',borderColor:'rgba(255,255,255,.05)'}}>
+                { label: "X Twitter", href: C.TWITTER, color: "rgba(255,255,255,.08)", text: "#94a3b8" },
+                { label: "Telegram", href: C.TELEGRAM, color: "rgba(34,211,238,.08)", text: "#67e8f9" },
+                { label: "Discord", href: C.DISCORD, color: "rgba(99,102,241,.08)", text: "#a5b4fc" },
+                { label: "Treasury", href: `https://solscan.io/account/${C.TREASURY}`, color: "rgba(34,197,94,.08)", text: "#86efac" },
+              ].map(l => (
+                <a key={l.label} href={l.href} target="_blank" rel="noreferrer"
+                  className="rounded-xl px-4 py-2 text-sm font-bold transition-all"
+                  style={{ background: l.color, border: `1px solid ${l.color}`, color: l.text }}>
                   {l.label}
                 </a>
               ))}
             </div>
           </div>
-          <div className="border-t pt-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-[10px]" style={{borderColor:'rgba(255,255,255,.04)',color:'rgba(71,85,105,1)'}}>
-            <span>© 2026 MemeRush · Built on Solana · Bags Ecosystem · Solo-built MVP</span>
-            <span>⚠️ High risk. DYOR. Not financial advice.</span>
-          </div>
-        </div>
-      </footer>
-
-      {/* ── MOBILE BOTTOM BAR ─────────────────────────────────────────────── */}
-      <div className="fixed bottom-0 inset-x-0 z-40 sm:hidden border-t backdrop-blur-xl" style={{background:'rgba(5,3,1,.97)',borderColor:'rgba(249,115,22,.08)',paddingBottom:'env(safe-area-inset-bottom)'}}>
-        <div className="px-4 py-3">
-          <button onClick={go} className="w-full py-4 rounded-2xl text-base font-black text-white transition-all active:scale-95 flex items-center justify-center gap-2"
-            style={{background:G.primary,boxShadow:'0 0 32px rgba(249,115,22,.45),0 4px 16px rgba(0,0,0,.4)'}}>
-            ⚔️ ENTER ARENA
-            <span className="text-[11px] font-bold opacity-70">· from {C.MIN_SOL} SOL</span>
-          </button>
-        </div>
+          <p className="mt-5 text-xs text-slate-700">© 2026 MemeRush · Experimental PvP trading game. High risk. DYOR. Not financial advice.</p>
+        </footer>
       </div>
-
-      {/* Shared global CSS */}
-      <style jsx global>{`
-        html,body{overflow-y:auto!important;-webkit-overflow-scrolling:touch;background:#040410}
-        ::-webkit-scrollbar{width:2px;height:2px}
-        ::-webkit-scrollbar-track{background:transparent}
-        ::-webkit-scrollbar-thumb{background:rgba(249,115,22,.25);border-radius:2px}
-        *{scrollbar-width:thin;scrollbar-color:rgba(249,115,22,.2) transparent;-webkit-tap-highlight-color:transparent}
-        .scrollbar-none{scrollbar-width:none}
-        .scrollbar-none::-webkit-scrollbar{display:none}
-        @keyframes mr-glow-pulse{0%,100%{box-shadow:0 0 10px rgba(249,115,22,.25)}50%{box-shadow:0 0 24px rgba(249,115,22,.55)}}
-        .mr-glow-btn:hover{animation:mr-glow-pulse 1.5s ease-in-out infinite}
-      `}</style>
-    </div>
+    </main>
   );
 }
