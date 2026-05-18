@@ -30,6 +30,14 @@ export async function POST(req: NextRequest) {
     if (battle.status !== 'live') return NextResponse.json({ success: false, error: 'Battle is not live' }, { status: 409 });
     if (battle.end_time && new Date(battle.end_time) <= new Date()) return NextResponse.json({ success: false, error: 'Battle has expired' }, { status: 409 });
 
+    // Arena battles (mode='arena') CAN be joined by real users.
+    // When a user joins an arena battle, the battle is upgraded to mixed mode:
+    //   - SOL is deposited to treasury and tracked in mr_bets
+    //   - If no opponent joins within the time window → full refund
+    //   - If a second real user joins on the other side → fair payout applies
+    // The battle is NOT silently display-only once a real user has bet.
+    // We just note it was originally an arena battle for logging.
+
     // Duplicate TX check
     const bets = await getBetsForBattle(battleId);
     if (bets.some(b => b.tx_hashes?.includes(txHash))) return NextResponse.json({ success: false, error: 'Transaction already used in this battle' }, { status: 409 });
