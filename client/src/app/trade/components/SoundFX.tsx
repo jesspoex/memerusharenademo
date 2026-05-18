@@ -69,6 +69,7 @@ export function SoundFX({ enabledDefault = false, activeBattle, battleTimeLeft, 
     setEnabled(next);
     try { localStorage.setItem('mr_sound_enabled', next ? '1' : '0'); } catch {}
     if (next) playTone('join');
+    try { if (navigator.vibrate) navigator.vibrate(next ? 18 : 8); } catch {}
   };
 
   useEffect(() => {
@@ -98,7 +99,7 @@ export function SoundFX({ enabledDefault = false, activeBattle, battleTimeLeft, 
   return (
     <button
       onClick={toggle}
-      className="fixed right-3 bottom-[82px] z-[9990] h-12 min-w-[48px] rounded-full px-3 text-sm font-black shadow-2xl active:scale-95 animate-[mrSoundFloat_2.2s_ease-in-out_infinite]"
+      className="fixed right-3 bottom-[76px] sm:bottom-[84px] z-[9990] h-9 sm:h-12 min-w-[36px] sm:min-w-[48px] rounded-full px-2 sm:px-3 text-xs sm:text-sm font-black shadow-xl active:scale-95 opacity-70 hover:opacity-100"
       style={{
         background: enabled ? 'linear-gradient(135deg,#ea580c,#f97316)' : 'rgba(15,23,42,.88)',
         border: enabled ? '1px solid rgba(251,146,60,.6)' : '1px solid rgba(255,255,255,.08)',

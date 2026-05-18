@@ -11,13 +11,15 @@ interface WinResultModalProps {
   pickedToken?: string | null;
   txHash?: string;
   wallet?: string;
+  battleId?: string;
   isReal?: boolean;
   onClose: () => void;
 }
 
-function buildShareText(amount: number, battle: string, winnerToken: string, isReal?: boolean, streak = 1) {
+function buildShareText(amount: number, battle: string, winnerToken: string, isReal?: boolean, streak = 1, battleUrl = `${CFG.site}/trade`) {
   const payoutText = isReal ? `${sf(amount, 4)} SOL` : 'arena points';
-  return `YOU WON THE POOL 🏆\n\nClaimed ${payoutText} on MemeRush ⚔️\nBattle: ${battle}\nWinner: ${winnerToken}\nStreak: x${streak}\n\nPick a side. Beat the market. Claim the pool.\n${CFG.site}/trade`;
+  const rankText = streak >= 5 ? 'Arena Legend 👑' : streak >= 3 ? 'Hot Streak 🔥' : 'Pool Hunter ⚔️';
+  return `I just claimed the pool on MemeRush 🏆\n\n+${payoutText} from ${battle}\nWinner: ${winnerToken}\nRank: ${rankText} · Streak x${streak}\n\nPick a side. Beat the market. Claim the pool.\n${battleUrl}`;
 }
 
 function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -81,6 +83,7 @@ export function WinResultModal({
   pickedToken,
   txHash,
   wallet,
+  battleId,
   isReal = true,
   onClose,
 }: WinResultModalProps) {
@@ -97,11 +100,19 @@ export function WinResultModal({
     return () => clearTimeout(t);
   }, [open, battle]);
 
-  const shareText = useMemo(() => buildShareText(amount, battle, winnerToken, isReal, streak), [amount, battle, winnerToken, isReal, streak]);
+  const battleUrl = useMemo(() => {
+    const ref = wallet ? `&ref=${encodeURIComponent(wallet)}` : '';
+    return battleId ? `${CFG.site}/trade?battle=${encodeURIComponent(battleId)}${ref}` : `${CFG.site}/trade${wallet ? `?ref=${encodeURIComponent(wallet)}` : ''}`;
+  }, [battleId, wallet]);
+  const shareText = useMemo(() => buildShareText(amount, battle, winnerToken, isReal, streak, battleUrl), [amount, battle, winnerToken, isReal, streak, battleUrl]);
   const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
   const shortTx = txHash && !txHash.startsWith('PENDING') && !txHash.startsWith('ARENA') ? `${txHash.slice(0, 8)}…${txHash.slice(-6)}` : '';
   const payoutLabel = isReal ? 'SOL POOL CLAIMED' : 'ARENA RESULT';
   const rankLabel = streak >= 5 ? 'Arena Legend' : streak >= 3 ? 'Hot Streak' : 'Pool Hunter';
+
+  const rematch = () => {
+    try { window.location.href = `${CFG.site}/trade`; } catch { window.location.href = '/trade'; }
+  };
 
   const copyResult = async () => {
     try {
@@ -177,7 +188,7 @@ export function WinResultModal({
 
       ctx.fillStyle = '#e2e8f0';
       ctx.font = '800 26px system-ui, -apple-system, Segoe UI, sans-serif';
-      ctx.fillText('meemerush.xyz/trade', 850, 570);
+      ctx.fillText(battleUrl.replace('https://', '').replace('http://', '').slice(0, 28), 800, 570);
 
       canvas.toBlob(async (blob) => {
         setMakingImage(false);
@@ -268,6 +279,20 @@ export function WinResultModal({
             <p className="mt-1 text-xs font-bold uppercase tracking-widest text-emerald-200">{isReal ? 'SOL' : 'Arena result'}</p>
           </div>
 
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {[
+              { label: 'Rank', value: rankLabel, icon: '⚡' },
+              { label: 'Streak', value: `x${streak}`, icon: '🔥' },
+              { label: 'Next', value: 'Rematch', icon: '⚔️' },
+            ].map((item) => (
+              <div key={item.label} className="rounded-2xl border border-yellow-400/10 px-2.5 py-2 text-center" style={{ background: 'rgba(120,53,15,.18)' }}>
+                <p className="text-base leading-none">{item.icon}</p>
+                <p className="mt-1 text-[8px] font-black uppercase tracking-widest text-slate-500">{item.label}</p>
+                <p className="mt-0.5 truncate text-[11px] font-black text-yellow-200">{item.value}</p>
+              </div>
+            ))}
+          </div>
+
           <div className="mt-4 grid grid-cols-2 gap-2 text-left">
             <div className="rounded-2xl border border-white/[.06] p-3" style={{ background: 'rgba(15,23,42,.50)' }}>
               <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Battle</p>
@@ -299,22 +324,29 @@ export function WinResultModal({
             </a>
           )}
 
-          <div className="mt-5 grid grid-cols-2 gap-3">
+          <div className="mt-5 grid grid-cols-3 gap-2">
             <a
               href={tweetUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="rounded-2xl px-4 py-3 text-sm font-black text-white active:scale-95"
+              className="rounded-2xl px-2 py-3 text-xs font-black text-white active:scale-95"
               style={{ background: 'linear-gradient(135deg,#0ea5e9,#2563eb)', boxShadow: '0 0 24px rgba(14,165,233,.30)' }}
             >
               Share on X
             </a>
             <button
               onClick={copyResult}
-              className="rounded-2xl px-4 py-3 text-sm font-black text-white active:scale-95"
+              className="rounded-2xl px-2 py-3 text-xs font-black text-white active:scale-95"
               style={{ background: copied ? 'linear-gradient(135deg,#059669,#10b981)' : 'linear-gradient(135deg,#ea580c,#f97316)', boxShadow: copied ? '0 0 22px rgba(16,185,129,.24)' : '0 0 22px rgba(249,115,22,.25)' }}
             >
               {copied ? 'Copied ✓' : 'Copy Result'}
+            </button>
+            <button
+              onClick={rematch}
+              className="rounded-2xl px-2 py-3 text-xs font-black text-white active:scale-95"
+              style={{ background: 'linear-gradient(135deg,#7c2d12,#f59e0b)', boxShadow: '0 0 22px rgba(245,158,11,.22)' }}
+            >
+              Rematch
             </button>
           </div>
 
@@ -327,9 +359,10 @@ export function WinResultModal({
             {makingImage ? 'Creating flex image…' : imageReady ? 'Share Image Ready ✓' : 'Create Auto Flex Image'}
           </button>
 
-          <p className="mt-4 text-[10px] leading-relaxed text-slate-500">
-            Post the result, bring more fighters, and keep the arena alive.
-          </p>
+          <div className="mt-3 rounded-2xl border border-orange-500/15 px-3 py-2 text-left" style={{ background: 'rgba(120,53,15,.12)' }}>
+            <p className="text-[9px] font-black uppercase tracking-widest text-orange-300">Viral loop</p>
+            <p className="mt-1 text-[10px] leading-relaxed text-slate-400">Your result includes a battle link + referral. Share it, bring fighters back to the same arena, and run the rematch while it is hot.</p>
+          </div>
         </div>
       )}
 

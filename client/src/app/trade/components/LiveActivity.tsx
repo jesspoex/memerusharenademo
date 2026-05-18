@@ -26,12 +26,36 @@ function liveTime(raw?: string, index = 0) {
   if (!raw) return index === 0 ? 'just now' : `${index * 8 + 5}s ago`;
   const value = String(raw).trim().toLowerCase();
   if (value === 'live' || value === 'now' || value === 'just now') return 'just now';
+  // Already formatted relative string — return as-is
+  if (/^\d+[smhd] ago$/.test(value) || /^just now$/.test(value)) return value;
+  // Old "Xd ago" format
   if (/\d+d\s+ago/.test(value) || /\d+\s+day/.test(value)) return index === 0 ? 'just now' : `${Math.min(index * 9 + 4, 59)}s ago`;
-  return raw;
+  // ISO timestamp or any parseable date
+  const ts = new Date(raw).getTime();
+  if (!isNaN(ts)) {
+    const d = Math.floor((Date.now() - ts) / 1000);
+    if (d < 5) return 'just now';
+    if (d < 60) return `${d}s ago`;
+    if (d < 3600) return `${Math.floor(d / 60)}m ago`;
+    if (d < 86400) return `${Math.floor(d / 3600)}h ago`;
+    return index === 0 ? 'just now' : `${Math.min(index * 9 + 4, 59)}s ago`;
+  }
+  // Fallback for unknown format
+  return index === 0 ? 'just now' : `${index * 8 + 5}s ago`;
+}
+
+function RelativeTs({ raw, index = 0 }: { raw?: string; index?: number }) {
+  const [label, setLabel] = useState(() => liveTime(raw, index));
+  useEffect(() => {
+    const id = setInterval(() => setLabel(liveTime(raw, index)), 5000);
+    return () => clearInterval(id);
+  }, [raw, index]);
+  return <span className="text-[9px] text-slate-600 tabular-nums">{label}</span>;
 }
 
 export function LiveActivity({ activities, recentWinners }: Props) {
   const latestWinner = recentWinners[0];
+  const heat = Math.min(99, activities.length * 9 + recentWinners.length * 14);
   const latestWinKey = useMemo(() => latestWinner ? `${latestWinner.wallet}-${latestWinner.amount}-${latestWinner.battle}-${latestWinner.time}` : '', [latestWinner]);
   const [showLiveWin, setShowLiveWin] = useState(false);
 
@@ -46,7 +70,7 @@ export function LiveActivity({ activities, recentWinners }: Props) {
     return (
       <section className="rounded-2xl border border-orange-500/10 p-5 text-center" style={{ background: 'rgba(6,6,18,.97)' }}>
         <p className="text-2xl">🏟️</p>
-        <p className="mt-2 text-sm font-black text-white">Arena is waiting for the first legend</p>
+        <p className="mt-2 text-sm font-black text-white">Arena waiting for the first legendary win</p>
         <p className="mt-1 text-xs text-slate-600">Create or join a battle to light up the live feed.</p>
       </section>
     );
@@ -62,13 +86,39 @@ export function LiveActivity({ activities, recentWinners }: Props) {
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xl" style={{ background: 'rgba(250,204,21,.16)', border: '1px solid rgba(250,204,21,.25)' }}>🏆</div>
               <div className="min-w-0">
                 <p className="text-[9px] font-black uppercase tracking-widest text-emerald-300">Live win</p>
-                <p className="truncate text-xs font-black text-white">Someone just won <span className="text-emerald-300">+{sf(latestWinner.amount, 3)} SOL</span></p>
+                <p className="truncate text-xs font-black text-white">Arena payout claimed <span className="text-emerald-300">+{sf(latestWinner.amount, 3)} SOL</span></p>
                 <p className="truncate text-[10px] text-slate-400">{latestWinner.battle} · {liveTime(latestWinner.time)}</p>
               </div>
             </div>
             <span className="rounded-full px-2 py-1 text-[8px] font-black text-yellow-300" style={{ background: 'rgba(120,53,15,.45)' }}>CLAIMED</span>
           </div>
         </div>
+      )}
+
+      {(activities.length > 0 || recentWinners.length > 0) && (
+        <section className="rounded-2xl overflow-hidden" style={{
+          background: 'linear-gradient(135deg,rgba(20,10,2,.96),rgba(6,6,18,.97))',
+          border: '1px solid rgba(249,115,22,.14)',
+          boxShadow: '0 0 24px rgba(249,115,22,.07)',
+        }}>
+          <div className="px-4 py-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-widest text-orange-400 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse inline-block"/>
+                Arena Heat
+              </p>
+              <p className="mt-0.5 text-[10px] text-slate-500 truncate">Live activity index — joins, wins, battles</p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-2xl font-black tabular-nums" style={{color: heat > 60 ? '#f97316' : heat > 30 ? '#fbbf24' : '#94a3b8'}}>{heat}</p>
+              <p className="text-[8px] font-black uppercase tracking-widest text-slate-600">heat score</p>
+            </div>
+          </div>
+          <div className="h-2 bg-white/[.04] mx-3 mb-3 rounded-full overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-700"
+              style={{ width: `${Math.max(14, heat)}%`, background:'linear-gradient(90deg,#ea580c,#facc15,#22c55e)', boxShadow: '0 0 8px rgba(249,115,22,.4)' }} />
+          </div>
+        </section>
       )}
 
       {latestWinner && (
@@ -112,7 +162,7 @@ export function LiveActivity({ activities, recentWinners }: Props) {
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="text-[8px] px-1.5 py-0.5 rounded-full font-black shrink-0" style={{ background: st.bg, border: `1px solid ${st.border}`, color: st.text }}>{st.label}</span>
                         <p className="text-[11px] font-black text-white truncate">{st.headline}</p>
-                        {index === 0 && <span className="text-[7px] px-1 rounded-full bg-emerald-500/15 text-emerald-300 font-black">NEW</span>}
+                        {index === 0 && <span className="text-[7px] px-1.5 py-0.5 rounded-full font-black animate-pulse" style={{background:'rgba(34,197,94,.15)',color:'#4ade80',border:'1px solid rgba(34,197,94,.25)'}}>NEW</span>}
                       </div>
                       <p className="mt-0.5 text-[10px] text-slate-500 truncate"><span className="font-mono text-slate-400">{a.user}</span><span className="text-slate-700"> · </span><span>{cleanBattleName(a.battle)}</span></p>
                     </div>
@@ -120,7 +170,7 @@ export function LiveActivity({ activities, recentWinners }: Props) {
 
                   <div className="text-right shrink-0">
                     {amount > 0 && <p className={`text-sm font-black tabular-nums ${a.action === 'won' ? 'text-emerald-400' : 'text-yellow-400'}`}>{a.action === 'won' ? '+' : ''}{sf(amount, a.action === 'won' ? 3 : 2)} SOL</p>}
-                    <div className="flex items-center justify-end gap-1 mt-0.5"><span className="text-[9px] text-slate-600">{liveTime(a.time, index)}</span>{hasTx && <a href={`${CFG.solscan}/tx/${a.txHash}`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-orange-400 hover:text-orange-300">↗</a>}</div>
+                    <div className="flex items-center justify-end gap-1 mt-0.5"><RelativeTs raw={a.time} index={index} />{hasTx && <a href={`${CFG.solscan}/tx/${a.txHash}`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-orange-400 hover:text-orange-300">↗</a>}</div>
                   </div>
                 </div>
               );
