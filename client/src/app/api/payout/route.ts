@@ -23,8 +23,24 @@ export async function POST(req: NextRequest) {
       const battle = await getBattleById(battleId);
       if (!battle) return NextResponse.json({ success:false, error:'Battle not found' }, { status:404 });
 
-      // Arena: no payout
-      if (battle.mode !== 'real') return NextResponse.json({ success:true, arena:true, battleId });
+      // FIX: Arena battles skip normal payout BUT still need refund if someone
+      // somehow deposited (edge case: bug or direct API call before the guard was added).
+      if (battle.mode !== 'real') {
+        const { getBetsForBattle } = await import('@/lib/supabase');
+        const bets = await getBetsForBattle(battleId);
+        const hasDeposits = bets.some(b => (b.amount ?? 0) > 0);
+        if (!hasDeposits) {
+          return NextResponse.json({ success:true, arena:true, battleId, message:'Arena battle — no deposits, nothing to pay' });
+        }
+        // Has deposits → force refund
+        console.warn(`[Payout] Arena battle ${battleId} has ${bets.length} bets — forcing refund`);
+        const { executePayout } = await import('@/lib/payout');
+        // Mark as REFUND first
+        const { dbPatch } = await import('@/lib/supabase');
+        await dbPatch('mr_battles', `id=eq.${battleId}`, { winner: 'REFUND', winner_wallet: null });
+        const r = await executePayout(battleId);
+        return NextResponse.json({ success: r.success, arena: true, refunded: true, battleId, txHash: r.txHash, error: r.error });
+      }
 
       // Idempotency: already paid
       if (battle.status === 'paid' && battle.payout_tx_hash) {
