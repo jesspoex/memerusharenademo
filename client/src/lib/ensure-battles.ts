@@ -1,19 +1,28 @@
 /**
  * lib/ensure-battles.ts
  *
- * ARSITEKTUR BARU: Supabase pg_cron menangani pembuatan battle otomatis.
+ * ARSITEKTUR: Supabase pg_cron menangani pembuatan battle otomatis.
  *
- * File ini sekarang hanya dipakai sebagai:
- *   1. FALLBACK — jika /api/battles dipanggil dan Supabase pg_cron belum jalan
+ * File ini dipakai sebagai:
+ *   1. FALLBACK — jika pg_cron belum jalan
  *   2. SYNC call dari /api/battles untuk validasi real-time count
  *
- * Scheduler utama: Supabase pg_cron → mr_scheduler_tick() setiap 1 menit
- * Tidak ada ketergantungan pada Vercel Cron atau CRON_SECRET.
+ * IMPORTANT — MODE RULES:
+ *   mode='arena'  → Demo/display only. User TIDAK boleh join dengan SOL real.
+ *                   Battle ini murni untuk menunjukkan activity ke pengunjung.
+ *   mode='real'   → User boleh join. SOL masuk treasury. Payout dieksekusi.
+ *
+ * FIX APPLIED:
+ *   - System battles sekarang mode='arena' dengan flag joinable=false
+ *   - cleanupExpired() sekarang memanggil refund jika ada bets
+ *   - Fake player count dihapus → players=0 untuk system battles
+ *   - Arena battles tidak bisa di-join via join-battle API
  */
 
-import { dbSelect, dbInsert, dbPatch } from '@/lib/supabase';
+import { dbSelect, dbInsert, dbPatch, getBetsForBattle } from '@/lib/supabase';
+import { executePayout } from '@/lib/payout';
 
-// ── Token registry (sync dengan SQL function) ─────────────────────────────────
+// ── Token registry ─────────────────────────────────────────────────────────
 export const SAFE_TOKENS = [
   { symbol: 'BONK',   logoUrl: 'https://assets.coingecko.com/coins/images/28600/large/bonk.jpg' },
   { symbol: 'WIF',    logoUrl: 'https://assets.coingecko.com/coins/images/33567/large/dogwifhat.jpg' },
@@ -26,11 +35,11 @@ export const SAFE_TOKENS = [
 ];
 
 const MIN_BATTLES = 5;
-const DURATIONS   = [180, 240, 300, 420, 600]; // seconds — 3 to 10 min
+const DURATIONS   = [180, 240, 300, 420, 600];
 const MIN_BET     = 0.001;
 const MAX_BET     = 0.008;
 
-// ── Price cache (5-min TTL) ───────────────────────────────────────────────────
+// ── Price cache (5-min TTL) ────────────────────────────────────────────────
 const CG_IDS: Record<string, string> = {
   SOL: 'solana', BONK: 'bonk', WIF: 'dogwifcoin', POPCAT: 'popcat',
   BOME: 'book-of-meme', MYRO: 'myro', PEPE: 'pepe',
@@ -65,7 +74,6 @@ async function getLivePrices(syms: string[]): Promise<Record<string, { price: nu
   return out;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 function genId(): string {
   return `sys_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -78,7 +86,7 @@ function pickPair(used: Set<string>): [string, string] | null {
       if (!used.has(`${a}_${b}`) && !used.has(`${b}_${a}`)) return [a, b];
     }
   }
-  return [shuffled[0].symbol, shuffled[1].symbol]; // fallback
+  return [shuffled[0].symbol, shuffled[1].symbol];
 }
 
 async function createOneBattle(tokenA: string, tokenB: string): Promise<boolean> {
@@ -91,17 +99,17 @@ async function createOneBattle(tokenA: string, tokenB: string): Promise<boolean>
   const ok = await dbInsert('mr_battles', {
     id:               genId(),
     creator:          'system',
-    mode:             'arena',
+    mode:             'arena',        // ← DISPLAY ONLY: tidak bisa di-join dengan SOL real
     type:             'system',
     token_a:          tokenA,
     token_b:          tokenB,
     amount,
-    prize_pool:       parseFloat((amount * 0.98).toFixed(6)),
+    prize_pool:       0,              // ← FIX: pool = 0 karena tidak ada yang deposit
     total_deposited:  0,
     fee_collected:    0,
     status:           'live',
     payment:          'SOL',
-    players:          Math.floor(Math.random() * 6) + 1,
+    players:          0,              // ← FIX: 0, bukan fake random number
     start_time:       now.toISOString(),
     end_time:         end.toISOString(),
     created_at:       now.toISOString(),
@@ -112,15 +120,15 @@ async function createOneBattle(tokenA: string, tokenB: string): Promise<boolean>
       tokenB_ch24:   prices[tokenB]?.ch24  ?? 0,
       duration_s:    duration,
       created_by:    'nextjs_fallback',
+      joinable:      false,           // ← explicit flag: tidak bisa di-join
     },
   });
 
-  if (ok) console.log(`[EnsureBattles:fallback] ✅ ${tokenA} vs ${tokenB} ${duration}s`);
-  else    console.error(`[EnsureBattles:fallback] ❌ insert failed: ${tokenA} vs ${tokenB}`);
+  if (ok) console.log(`[EnsureBattles] ✅ arena ${tokenA} vs ${tokenB} ${duration}s`);
+  else    console.error(`[EnsureBattles] ❌ insert failed: ${tokenA} vs ${tokenB}`);
   return ok;
 }
 
-// ── Main export ───────────────────────────────────────────────────────────────
 export interface EnsureResult {
   existing: number;
   created:  number;
@@ -129,16 +137,6 @@ export interface EnsureResult {
   source:   'supabase_cron' | 'nextjs_fallback';
 }
 
-/**
- * ensureMinimumBattles()
- *
- * Cek apakah battle cukup. Jika pg_cron Supabase sudah berjalan dengan benar,
- * fungsi ini biasanya langsung return karena battle sudah tersedia.
- *
- * Fallback aktif hanya jika:
- *   - pg_cron belum aktif / baru setup
- *   - Ada edge case race condition
- */
 export async function ensureMinimumBattles(): Promise<EnsureResult> {
   const result: EnsureResult = { existing: 0, created: 0, needed: 0, errors: [], source: 'nextjs_fallback' };
   try {
@@ -151,16 +149,14 @@ export async function ensureMinimumBattles(): Promise<EnsureResult> {
     result.existing = live.length;
     result.needed   = Math.max(0, MIN_BATTLES - live.length);
 
-    // pg_cron handles this — only create if count is critically low (0 or 1)
-    // Avoid competing with pg_cron which runs every 60s
     const threshold = live.length <= 1 ? result.needed : Math.max(0, 2 - live.length);
 
     if (threshold === 0) {
-      result.source = 'supabase_cron'; // cron already handled it
+      result.source = 'supabase_cron';
       return result;
     }
 
-    console.log(`[EnsureBattles] Fallback: need ${threshold} more (pg_cron may be behind)`);
+    console.log(`[EnsureBattles] Fallback: need ${threshold} more`);
     const used = new Set(live.map(b => `${b.token_a}_${b.token_b}`));
 
     for (let i = 0; i < threshold; i++) {
@@ -173,8 +169,8 @@ export async function ensureMinimumBattles(): Promise<EnsureResult> {
       else    result.errors.push(`insert failed: ${a} vs ${b}`);
     }
 
-    // Cleanup expired (pg_cron juga handles ini, tapi aman dijalankan dobel)
-    cleanupExpired().catch(() => {});
+    // Cleanup expired dengan safe refund
+    cleanupExpiredSafe().catch(() => {});
 
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -184,13 +180,63 @@ export async function ensureMinimumBattles(): Promise<EnsureResult> {
   return result;
 }
 
-async function cleanupExpired(): Promise<void> {
+/**
+ * cleanupExpiredSafe()
+ *
+ * FIX: Sebelumnya langsung set status='paid' tanpa cek bets.
+ * Sekarang:
+ *   1. Cek apakah ada bets di battle yang expired
+ *   2. Kalau ada bets → panggil executePayout (akan refund karena mode='arena')
+ *   3. Kalau tidak ada bets → langsung mark ended, tidak ada transfer
+ */
+async function cleanupExpiredSafe(): Promise<void> {
   const now = new Date().toISOString();
   try {
-    const expired = await dbSelect<{ id: string }>(
-      'mr_battles', `status=eq.live&mode=eq.arena&end_time=lt.${now}&select=id`,
+    const expired = await dbSelect<{ id: string; mode: string; total_deposited: number }>(
+      'mr_battles',
+      `status=eq.live&end_time=lt.${now}&select=id,mode,total_deposited`,
     );
-    for (const b of expired) await dbPatch('mr_battles', `id=eq.${b.id}`, { status: 'paid', ended_at: now });
-    if (expired.length) console.log(`[EnsureBattles] Cleaned ${expired.length} expired`);
-  } catch { /* non-critical */ }
+
+    for (const b of expired) {
+      try {
+        // Cek apakah ada deposit nyata
+        const bets = await getBetsForBattle(b.id);
+
+        if (bets.length === 0 || (b.total_deposited ?? 0) === 0) {
+          // Tidak ada deposit → langsung mark ended, tidak ada payout
+          await dbPatch('mr_battles', `id=eq.${b.id}`, {
+            status:    'ended',
+            winner:    'NO_BETS',
+            ended_at:  now,
+          });
+          console.log(`[EnsureBattles] Cleanup ${b.id}: no bets, marked ended`);
+        } else {
+          // Ada deposit → harus refund!
+          console.warn(`[EnsureBattles] Battle ${b.id} expired with ${bets.length} bets and ${b.total_deposited} SOL deposited — triggering refund`);
+
+          // Mark sebagai REFUND dulu
+          await dbPatch('mr_battles', `id=eq.${b.id}`, {
+            status:       'ended',
+            winner:       'REFUND',
+            winner_wallet: null,
+            ended_at:     now,
+          });
+
+          // Eksekusi refund ke semua bettor
+          const result = await executePayout(b.id);
+          if (result.success) {
+            console.log(`[EnsureBattles] Refund OK for ${b.id}: ${result.payoutSol} SOL`);
+          } else {
+            console.error(`[EnsureBattles] Refund FAILED for ${b.id}: ${result.error}`);
+          }
+        }
+      } catch (e) {
+        console.error(`[EnsureBattles] Error cleaning ${b.id}:`, e);
+      }
     }
+
+    if (expired.length) console.log(`[EnsureBattles] Cleaned ${expired.length} expired battles`);
+  } catch (e) {
+    console.error('[EnsureBattles] cleanupExpiredSafe error:', e);
+  }
+}

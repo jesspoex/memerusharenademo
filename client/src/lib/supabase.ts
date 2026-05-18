@@ -31,6 +31,12 @@ export interface DbBet {
 export interface DbStats {
   id: number; players: number; battles: number;
   vol_sol: number; paid_sol: number; updated_at: string;
+  // Extended fields returned by /api/stats (computed at runtime, not in DB table)
+  treasuryBal?: number;
+  livePool?: number;
+  liveTotal?: number;
+  liveReal?: number;
+  liveArena?: number;
 }
 
 export interface DbWinner {
