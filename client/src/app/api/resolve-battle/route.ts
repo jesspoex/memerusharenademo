@@ -17,6 +17,8 @@ interface DbBattle {
   audd_pool?:     number | null;
   prize_pool?:    number | null;
   players?:       number | null;
+  mode?:          string | null;
+  meta?:          Record<string, unknown> | null;
 }
 
 interface DbBet {
@@ -94,6 +96,22 @@ export async function POST(req: NextRequest) {
         const hasA = battleBets.some(b => b.side === 'A');
         const hasB = battleBets.some(b => b.side === 'B');
 
+        // ARENA BATTLES:
+        // If an arena battle has NO bets → just mark ended, no payout needed.
+        // If an arena battle has bets on BOTH sides → treat as real battle, apply fair payout.
+        // If an arena battle has bets on ONE side only → refund (no opponent within time window).
+        if (battle.mode !== 'real') {
+          if (battleBets.length === 0) {
+            await db.from('mr_battles').update({ status: 'ended', winner: 'NO_BETS', ended_at: now }).eq('id', battle.id);
+            results.push({ id: battle.id, winner: 'NO_BETS', payment: battle.payment ?? 'SOL', payoutStatus: 'no_bets', reason: 'arena_no_participants' });
+            console.info(`[resolve-battle] ${battle.id} → NO_BETS (arena, no participants)`);
+            continue;
+          }
+          // Has bets — continue to normal resolution logic below
+          // (single_wallet / one_sided will be caught by FAIRNESS RULE and refunded)
+          console.info(`[resolve-battle] ${battle.id} arena battle with ${battleBets.length} bets — applying fair resolution`);
+        }
+
         // IMPORTANT FAIRNESS RULE:
         // A real battle cannot produce a winner if nobody joins, only one wallet is present,
         // or all deposits are on one side. In those cases the backend marks the battle as
@@ -129,17 +147,25 @@ export async function POST(req: NextRequest) {
         let winner       = battle.token_a;
         let winnerWallet: string | null = null;
 
-        // Server fallback winner selection: side with larger net pool.
-        // The UI shows live % movement for demo clarity; production can replace this with
-        // persisted start/end price snapshots in battle.meta for fully deterministic scoring.
-        const poolA = battleBets
-          .filter(b => b.side === 'A')
-          .reduce((s, b) => s + (b.net_amount ?? 0), 0);
-        const poolB = battleBets
-          .filter(b => b.side === 'B')
-          .reduce((s, b) => s + (b.net_amount ?? 0), 0);
+        // Winner selection: use persisted price snapshot from battle.meta if available.
+        // meta stores tokenA_ch24 and tokenB_ch24 at battle creation time as baseline.
+        // At resolution, we compare movement from baseline to current 24h change.
+        // Fallback: side with larger net pool wins (incentivizes balanced battles).
+        const meta = (battle as any).meta ?? {};
+        let winningSide = 'A';
 
-        const winningSide = poolA >= poolB ? 'A' : 'B';
+        if (meta.tokenA_endChange != null && meta.tokenB_endChange != null) {
+          // Use persisted end-of-battle price movement (set by price tick cron)
+          winningSide = meta.tokenA_endChange >= meta.tokenB_endChange ? 'A' : 'B';
+          console.info(`[resolve-battle] ${battle.id} price-based: A=${meta.tokenA_endChange} B=${meta.tokenB_endChange}`);
+        } else {
+          // Fallback: larger pool side wins
+          const poolA = battleBets.filter(b => b.side === 'A').reduce((s, b) => s + (b.net_amount ?? 0), 0);
+          const poolB = battleBets.filter(b => b.side === 'B').reduce((s, b) => s + (b.net_amount ?? 0), 0);
+          winningSide = poolA >= poolB ? 'A' : 'B';
+          console.info(`[resolve-battle] ${battle.id} pool-based fallback: A=${poolA} B=${poolB}`);
+        }
+
         winner = winningSide === 'A' ? battle.token_a : battle.token_b;
 
         const { data: topBet } = await db
